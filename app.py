@@ -3,8 +3,6 @@ import pandas as pd
 import yfinance as yf
 import re
 import twstock
-import sqlite3
-import uuid
 
 # 設定網頁寬度與標題
 st.set_page_config(
@@ -12,59 +10,6 @@ st.set_page_config(
     page_icon="⚡",
     layout="wide"
 )
-
-# --- 隱形 UID 與 SQLite 資料庫初始化 ---
-def init_db():
-    conn = sqlite3.connect('portfolio_v2.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS user_portfolios (
-            uid TEXT,
-            ticker TEXT,
-            chinese_name TEXT,
-            market TEXT,
-            shares REAL,
-            cost REAL,
-            tp REAL,
-            sl REAL,
-            PRIMARY KEY (uid, ticker)
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# 確保每個瀏覽器連線都有專屬且持久的 UID (透過網址參數保留，F5 重新整理也不會丟失)
-query_params = st.query_params
-if "uid" not in query_params or not query_params["uid"]:
-    new_uid = str(uuid.uuid4())[:8] # 產生 8 碼短 UID
-    st.query_params["uid"] = new_uid
-    user_uid = new_uid
-else:
-    user_uid = query_params["uid"]
-
-def load_portfolio(uid):
-    conn = sqlite3.connect('portfolio_v2.db', check_same_thread=False)
-    df = pd.read_sql('''
-        SELECT ticker as "股票代號", chinese_name as "中文名稱", market as "市場", 
-               shares as "買入股數", cost as "買入均價", tp as "停利目標價", sl as "停損目標價" 
-        FROM user_portfolios WHERE uid = ?
-    ''', conn, params=(uid,))
-    conn.close()
-    return df
-
-def save_portfolio(uid, df):
-    conn = sqlite3.connect('portfolio_v2.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('DELETE FROM user_portfolios WHERE uid = ?', (uid,))
-    for _, row in df.iterrows():
-        c.execute('''
-            INSERT OR REPLACE INTO user_portfolios (uid, ticker, chinese_name, market, shares, cost, tp, sl)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (uid, row["股票代號"], row["中文名稱"], row["市場"], row["買入股數"], row["買入均價"], row["停利目標價"], row["停損目標價"]))
-    conn.commit()
-    conn.close()
 
 # 注入科技感暗色系與儀表板專用 CSS
 st.markdown("""
@@ -146,8 +91,11 @@ def resolve_and_verify_ticker(user_input):
             
     return ticker, name, market
 
-# 載入當前使用者的持股
-current_portfolio = load_portfolio(user_uid)
+# 初始化 Session State
+if "portfolio" not in st.session_state:
+    st.session_state.portfolio = pd.DataFrame(
+        columns=["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"]
+    )
 
 # --- 新增持股區塊 ---
 st.subheader("📝 新增持股部位")
@@ -175,36 +123,34 @@ with st.form("add_form", clear_on_submit=True):
                 "停利目標價": [tp_input],
                 "停損目標價": [sl_input]
             })
-            if not current_portfolio.empty:
-                updated_df = pd.concat([current_portfolio[current_portfolio["股票代號"] != ticker], new_row]).reset_index(drop=True)
-            else:
-                updated_df = new_row
-            save_portfolio(user_uid, updated_df)
+            st.session_state.portfolio = pd.concat(
+                [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_row]
+            ).reset_index(drop=True)
             st.success(f"成功新增：{ticker} {stock_name}")
             st.rerun()
 
 # --- 持股管理與刪除 ---
-if not current_portfolio.empty:
+if not st.session_state.portfolio.empty:
     st.markdown("---")
     st.subheader("🛠️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
     
     edited_portfolio = st.data_editor(
-        current_portfolio,
+        st.session_state.portfolio,
         num_rows="dynamic",
         use_container_width=True,
         key="portfolio_editor"
     )
     
     if st.button("💾 儲存表格變更"):
-        save_portfolio(user_uid, edited_portfolio)
-        st.success("變更已成功同步至資料庫！")
+        st.session_state.portfolio = edited_portfolio
+        st.success("變更已儲存！")
         st.rerun()
 
     # --- 盤勢健檢與儀表板計算 ---
     st.markdown("---")
     st.subheader("📊 多指標智慧買賣點戰情室")
     
-    portfolio_df = edited_portfolio.copy()
+    portfolio_df = st.session_state.portfolio.copy()
     current_prices, total_market_values, total_costs, profits, profit_pcts, final_tps, final_sls, recommendations, alerts = [], [], [], [], [], [], [], [], []
 
     for index, row in portfolio_df.iterrows():
@@ -233,8 +179,18 @@ if not current_portfolio.empty:
         except:
             pass
             
-        suggested_tp = user_tp if user_tp > 0 else round(max(u_val, cost * 1.15), 2)
-        suggested_sl = user_sl if user_sl > 0 else round(min(l_val, cost * 0.92), 2)
+        # --- 改善後的智慧停利停損邏輯（以「現價」為基準動態計算） ---
+        if user_tp > 0:
+            suggested_tp = user_tp
+        else:
+            # 預設為現價往上 15%，或是技術面上軌取其高者
+            suggested_tp = round(max(u_val, current_price * 1.15), 2)
+
+        if user_sl > 0:
+            suggested_sl = user_sl
+        else:
+            # 改以「現價往下 9%」或技術面下軌來做合理的動態防守
+            suggested_sl = round(max(l_val, current_price * 0.91), 2)
 
         market_value = current_price * shares
         total_cost = cost * shares
