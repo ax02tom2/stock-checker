@@ -88,7 +88,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ 智慧持股健檢儀表板")
-st.markdown("🔒 **自動雲端同步**：免登入、免密碼！直接按 `F5` 重新整理資料也會自動保留，各裝置資料完全獨立不干擾。")
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
