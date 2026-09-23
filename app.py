@@ -221,8 +221,6 @@ if not current_portfolio.empty:
     portfolio_df = working_portfolio.copy()
     current_prices, total_market_values, total_costs, profits, profit_pcts = [], [], [], [], []
     final_tps, final_sls, recommendations, alerts = [], [], [], []
-    
-    # 新增：股利與紀念品專用 List
     recent_divs, total_divs, div_dates, souvenir_urls = [], [], [], []
 
     for index, row in portfolio_df.iterrows():
@@ -260,17 +258,15 @@ if not current_portfolio.empty:
         except:
             pass
             
-        # 計算預估股息
         est_total_div = last_div * shares
 
-        # 產生股東會/紀念品即時查詢連結
+        # 🚀 修正 404 問題：改為串接穩定且手機排版友善的 Yahoo奇摩股市
         if market == "台股":
-            stock_code = str(ticker).replace(".TW", "")
-            s_url = f"https://histock.tw/stock/{stock_code}/%E8%82%A1%E6%9D%B1%E6%9C%83"
+            # Yahoo Finance 台灣版的專屬頁面
+            s_url = f"https://tw.stock.yahoo.com/quote/{ticker}/profile"
         else:
             s_url = f"https://finance.yahoo.com/quote/{ticker}/key-statistics"
 
-        # 停利停損
         if user_tp > 0:
             suggested_tp = user_tp
         else:
@@ -333,7 +329,7 @@ if not current_portfolio.empty:
     portfolio_df["每股最近股利"] = recent_divs
     portfolio_df["預估領取總股息"] = total_divs
     portfolio_df["最近除息日"] = div_dates
-    portfolio_df["股東會與紀念品"] = souvenir_urls
+    portfolio_df["股東會與即時情報"] = souvenir_urls
     portfolio_df["狀態"] = alerts
     portfolio_df["綜合建議"] = recommendations
 
@@ -353,7 +349,7 @@ if not current_portfolio.empty:
 
     # 定義表格特殊欄位渲染 (加入超連結樣式)
     column_config_dict = {
-        "股東會與紀念品": st.column_config.LinkColumn("股東會與紀念品", display_text="🔗 點擊查詢即時資訊")
+        "股東會與即時情報": st.column_config.LinkColumn("股東會與即時情報", display_text="🔗 點擊看股東會資訊")
     }
 
     # 分頁呈現
