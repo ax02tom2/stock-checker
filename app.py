@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-# 設定網頁標題
-st.set_page_title("個人持股健檢與多指標智慧買賣點系統", layout="wide")
+# 設定網頁寬度與標題 (修正語法錯誤)
+st.set_page_config(page_title="個人持股健檢與多指標智慧買賣點系統", layout="wide")
 
 st.title("📈 個人持股健檢與多指標智慧買賣點面板")
 st.markdown("系統自動綜合 **MA均線、RSI、MACD 與布林通道** 四大主流指標，為你進行深度交叉分析，並給出具體的買賣點與價位建議！")
