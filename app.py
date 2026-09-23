@@ -3,7 +3,7 @@ import pandas as pd
 import yfinance as yf
 import re
 import twstock
-from streamlit_local_storage import LocalStorage
+from streamlit_cookies_controller import CookieController
 
 # 設定網頁寬度與標題
 st.set_page_config(
@@ -12,8 +12,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# 初始化本地儲存元件
-localS = LocalStorage()
+# 初始化 Cookie 控制器
+controller = CookieController()
 
 # 注入科技感暗色系與儀表板專用 CSS
 st.markdown("""
@@ -37,7 +37,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ 智慧持股健檢儀表板")
-st.markdown("🔒 **安全加密儲存**：資料僅保存在您的瀏覽器裝置中，重新整理不遺失，且各裝置資料完全獨立！")
+st.markdown("🔒 **Cookie 安全持久化**：資料直接寫入瀏覽器 Cookie，重新整理絕不遺失，且各裝置資料完全獨立！")
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
@@ -69,7 +69,7 @@ def calculate_bollinger_bands(series, window=20, num_std=2):
     except Exception:
         return series, series, series
 
-# 智慧解析與驗證輸入（若代號不存在則回傳 None）
+# 驗證輸入代號
 def resolve_and_verify_ticker(user_input):
     clean_input = str(user_input).strip()
     digits = re.findall(r'\d+', clean_input)
@@ -77,7 +77,6 @@ def resolve_and_verify_ticker(user_input):
     if digits:
         code = digits[0]
         ticker = code + ".TW"
-        # 驗證台股代號是否存在於 twstock 中
         if code in twstock.codes:
             name = twstock.codes[code].name
             market = "台股"
@@ -89,30 +88,30 @@ def resolve_and_verify_ticker(user_input):
         try:
             stock = yf.Ticker(ticker)
             hist = stock.history(period="5d")
-            # 若抓不到歷史資料，代表美股代號不存在
             if hist.empty:
                 return None, None, None
-            info = stock.info
-            name = info.get('shortName') or ticker
+            name = stock.info.get('shortName') or ticker
         except:
             return None, None, None
             
     return ticker, name, market
 
-# --- 初始化 Session State 與載入 Local Storage 資料 ---
+# --- 從 Cookie 載入資料 ---
 if "portfolio" not in st.session_state:
-    saved_json = localS.getItem("quant_user_portfolio")
-    if saved_json:
+    saved_cookie = controller.get("quant_portfolio")
+    if saved_cookie:
         try:
-            st.session_state.portfolio = pd.read_json(saved_json, orient="split")
+            # 嘗試從 Cookie 解碼 DataFrame
+            import io
+            st.session_state.portfolio = pd.read_json(io.StringIO(saved_cookie), orient="split")
         except:
             st.session_state.portfolio = pd.DataFrame(columns=["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"])
     else:
         st.session_state.portfolio = pd.DataFrame(columns=["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"])
 
-def save_to_browser():
-    json_data = st.session_state.portfolio.to_json(orient="split", force_ascii=False)
-    localS.setItem("quant_user_portfolio", json_data)
+def save_to_cookie():
+    json_str = st.session_state.portfolio.to_json(orient="split", force_ascii=False)
+    controller.set("quant_portfolio", json_str)
 
 # --- 新增持股區塊 ---
 st.subheader("📝 新增持股部位")
@@ -143,7 +142,7 @@ with st.form("add_form", clear_on_submit=True):
             st.session_state.portfolio = pd.concat(
                 [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_row]
             ).reset_index(drop=True)
-            save_to_browser()
+            save_to_cookie()
             st.success(f"成功新增：{ticker} {stock_name}")
             st.rerun()
 
@@ -161,8 +160,8 @@ if not st.session_state.portfolio.empty:
     
     if st.button("💾 儲存表格變更"):
         st.session_state.portfolio = edited_portfolio
-        save_to_browser()
-        st.success("變更已永久儲存至您的瀏覽器！")
+        save_to_cookie()
+        st.success("變更已永久儲存至瀏覽器！")
         st.rerun()
 
     # --- 盤勢健檢與儀表板計算 ---
@@ -283,4 +282,4 @@ if not st.session_state.portfolio.empty:
                 color_style = "color: #34d399;" if us_profit >= 0 else "color: #f87171;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.2f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
-            st.info("目前尚無美股/其他持股紀錄。")
+            st.info("print('目前尚無美股/其他持股紀錄。')")
