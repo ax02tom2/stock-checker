@@ -2,11 +2,60 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-# 設定網頁寬度與標題
-st.set_page_config(page_title="個人持股健檢與智慧買賣點系統", layout="wide")
+# 設定網頁寬度與標題（強制啟用寬螢幕模式）
+st.set_page_config(
+    page_title="QUANT DASHBOARD | 智慧持股健檢儀表板",
+    page_icon="⚡",
+    layout="wide"
+)
 
-st.title("📈 個人持股健檢與智慧買賣點面板")
-st.markdown("支援直接輸入**中文名稱**（如：台積電、聯發科）或代號（如：2330），系統將自動帶入並智慧推薦停利停損價位！")
+# --- 注入科技感暗色系與儀表板專用 CSS ---
+st.markdown("""
+    <style>
+    .main {
+        background-color: #0e1117;
+    }
+    .metric-card {
+        background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+        border: 1px solid #374151;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        text-align: center;
+        margin-bottom: 15px;
+    }
+    .metric-title {
+        color: #9ca3af;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+    }
+    .metric-value {
+        color: #f3f4f6;
+        font-size: 26px;
+        font-weight: 700;
+        margin-top: 5px;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #1f2937;
+        border-radius: 8px 8px 0px 0px;
+        color: #d1d5db;
+        padding: 10px 20px;
+        font-weight: 600;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+        color: white !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("⚡ QUANT PORTFOLIO | 智慧持股健檢儀表板")
+st.markdown("🔹 **即時多指標交叉分析** (MA均線、RSI、MACD、布林通道) | **智慧動態停利停損**")
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
@@ -42,70 +91,81 @@ def calculate_bollinger_bands(series, window=20, num_std=2):
     except Exception:
         return series, series, series
 
-# 智慧解析輸入（支援直接打中文找台股代號，或直接輸入代號）
+# 智慧解析輸入（確保中文名稱完美對應）
 def resolve_ticker(user_input):
     clean_input = user_input.strip()
     
-    # 常用台股中文關鍵字對照表（確保免聯網搜尋也能秒查）
-    common_tw_stocks = {
-        "台積電": "2330.TW", "鴻海": "2317.TW", "聯發科": "2454.TW", 
-        "廣達": "2382.TW", "台達電": "2308.TW", "聯電": "2303.TW",
-        "富邦金": "2881.TW", "國泰金": "2882.TW", "中信金": "2891.TW",
-        "長榮": "2603.TW", "陽明": "2609.TW", "萬海": "2615.TW",
-        "大立光": "3008.TW", "中華電": "2412.TW", "台塑": "1301.TW"
+    # 擴充常用台股中文對照表（保證顯示純中文）
+    tw_stock_map = {
+        "台積電": ("2330.TW", "台積電"), "鴻海": ("2317.TW", "鴻海"), 
+        "聯發科": ("2454.TW", "聯發科"), "廣達": ("2382.TW", "廣達"), 
+        "台達電": ("2308.TW", "台達電"), "聯電": ("2303.TW", "聯電"),
+        "富邦金": ("2881.TW", "富邦金"), "國泰金": ("2882.TW", "國泰金"), 
+        "中信金": ("2891.TW", "中信金"), "長榮": ("2603.TW", "長榮"), 
+        "陽明": ("2609.TW", "陽明"), "萬海": ("2615.TW", "萬海"),
+        "大立光": ("3008.TW", "大立光"), "中華電": ("2412.TW", "中華電"), 
+        "台塑": ("1301.TW", "台塑"), "緯創": ("3231.TW", "緯創"),
+        "南亞": ("1303.TW", "南亞"), "台塑化": ("6505.TW", "台塑化")
     }
     
-    if clean_input in common_tw_stocks:
-        ticker = common_tw_stocks[clean_input]
-    elif clean_input.isdigit():
-        # 純數字預設為台股代號
-        ticker = clean_input + ".TW"
-    elif "." not in clean_input and not clean_input.isalpha():
-        ticker = clean_input + ".TW"
+    if clean_input in tw_stock_map:
+        ticker, name = tw_stock_map[clean_input]
+    elif clean_input.isdigit() or (clean_input.replace('.','',1).isdigit() and len(clean_input) <= 6):
+        if not clean_input.endswith(".TW") and not clean_input.endswith(".TWO"):
+            ticker = clean_input + ".TW"
+        else:
+            ticker = clean_input
+        # 試著從網路抓取或給予代號
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            name = info.get('chineseName') or info.get('shortName') or ticker
+            if "Taiwan Semiconductor" in name: name = "台積電"
+            elif "Hon Hai" in name: name = "鴻海"
+            elif "MediaTek" in name: name = "聯發科"
+        except:
+            name = ticker
     else:
-        # 英文代號或已包含點的格式（如 AAPL 或 2330.TW）
         ticker = clean_input.upper()
-        
-    # 取得名稱與市場分類
-    try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        name = info.get('longName') or info.get('shortName') or ticker
-    except Exception:
-        name = ticker
-        
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            name = info.get('shortName') or ticker
+        except:
+            name = ticker
+            
     market = "台股" if (".TW" in ticker or ".TWO" in ticker) else "美股/其他"
     return ticker, name, market
 
-# --- 主畫面：輸入持股資料 ---
-st.subheader("📝 輸入你的持股清單（可直接輸入中文名稱或代號）")
+# --- 主畫面：儀表板控制面板 ---
+st.subheader("📝 新增 / 更新持股部位")
 
 if "portfolio" not in st.session_state:
     st.session_state.portfolio = pd.DataFrame(
-        columns=["股票代號", "顯示名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"]
+        columns=["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"]
     )
 
-with st.form("stock_form"):
+with st.form("stock_form", clear_on_submit=False):
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        ticker_input = st.text_input("中文名稱或代號 (例: 台積電 或 2330)", value="台積電")
+        ticker_input = st.text_input("中文名稱或代號", value="台積電")
     with col2:
         shares_input = st.number_input("買入股數", min_value=1, value=1000)
     with col3:
         cost_input = st.number_input("買入均價", min_value=0.0, value=600.0)
     with col4:
-        tp_input = st.number_input("停利目標價 (填 0 代表自動建議)", min_value=0.0, value=0.0)
+        tp_input = st.number_input("停利目標價 (0表自動)", min_value=0.0, value=0.0)
     with col5:
-        sl_input = st.number_input("停損目標價 (填 0 代表自動建議)", min_value=0.0, value=0.0)
+        sl_input = st.number_input("停損目標價 (0表自動)", min_value=0.0, value=0.0)
     
-    submitted = st.form_submit_button("新增 / 更新持股")
+    submitted = st.form_submit_button("⚡ 執行加入 / 更新部位")
     if submitted:
         ticker, stock_name, market = resolve_ticker(ticker_input)
-        display_name = f"{ticker} ({stock_name})"
+        display_name = f"{ticker.split('.')[0]} {stock_name}"
         
         new_data = pd.DataFrame({
             "股票代號": [ticker],
-            "顯示名稱": [display_name],
+            "中文名稱": [display_name],
             "市場": [market],
             "買入股數": [shares_input],
             "買入均價": [cost_input],
@@ -116,11 +176,12 @@ with st.form("stock_form"):
         st.session_state.portfolio = pd.concat(
             [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_data]
         ).reset_index(drop=True)
-        st.success(f"已成功加入/更新：{display_name}！")
+        st.success(f"已成功載入部位：{display_name}！")
 
-# 顯示目前持股表格與多指標健檢
+# 顯示目前持股總覽
 if not st.session_state.portfolio.empty:
-    st.subheader("📊 持股健檢與智慧買賣點綜合分析總覽")
+    st.markdown("---")
+    st.subheader("📊 盤勢監控與智慧買賣點儀表板")
     
     portfolio_df = st.session_state.portfolio.copy()
     
@@ -169,7 +230,6 @@ if not st.session_state.portfolio.empty:
         except Exception:
             pass
             
-        # 自動推薦停利與停損價
         if user_tp > 0:
             suggested_tp = user_tp
         else:
@@ -207,21 +267,21 @@ if not st.session_state.portfolio.empty:
             score -= 2
 
         if score >= 3:
-            rec_msg = f"🟢 【強力買點】建議支撐區：約 {l_val:.1f} ~ {ma60:.1f} 附近逢低佈局。"
+            rec_msg = f"🟢 【強力買點】支撐區約 {l_val:.1f}~{ma60:.1f} 逢低佈局"
         elif score >= 1:
-            rec_msg = f"🟡 【逢低關注】短線回測月線({ma20:.1f})支撐。"
+            rec_msg = f"🟡 【逢低關注】回測月線({ma20:.1f})支撐"
         elif score <= -3:
-            rec_msg = f"🔴 【強力賣點】接近上軌({u_val:.1f})，建議分批停利。"
+            rec_msg = f"🔴 【強力賣點】接近上軌({u_val:.1f})建議停利"
         elif score <= -1:
-            rec_msg = f"🟠 【偏弱注意】短線動能轉弱，控制風險。"
+            rec_msg = f"🟠 【偏弱注意】短線動能轉弱"
         else:
-            rec_msg = f"⚪ 【震盪觀望】多空交錯，區間操作。"
+            rec_msg = f"⚪ 【震盪觀望】多空交錯區間操作"
 
-        alert_msg = "正常"
+        alert_msg = "正常監控中"
         if current_price >= suggested_tp:
-            alert_msg = "🎯 達成智慧停利目標！"
+            alert_msg = "🎯 達停利目標！"
         elif current_price <= suggested_sl:
-            alert_msg = "⚠️ 觸及智慧停損警戒！"
+            alert_msg = "⚠️ 觸停損警戒！"
 
         current_prices.append(round(current_price, 2))
         total_market_values.append(round(market_value, 2))
@@ -234,22 +294,21 @@ if not st.session_state.portfolio.empty:
         indicators_info.append(f"RSI:{rsi:.1f} | MA60:{ma60:.1f}")
         alerts.append(alert_msg)
 
-    # 替換表格中的代號欄位為顯示名稱
-    portfolio_df["標的名稱"] = portfolio_df["顯示名稱"]
-    portfolio_df = portfolio_df.drop(columns=["股票代號", "顯示名稱"])
+    portfolio_df["標的名稱"] = portfolio_df["中文名稱"]
+    portfolio_df = portfolio_df.drop(columns=["股票代號", "中文名稱"])
 
     portfolio_df["現價"] = current_prices
     portfolio_df["市值"] = total_market_values
     portfolio_df["總成本"] = total_costs
     portfolio_df["未實現損益"] = profits
     portfolio_df["報酬率 (%)"] = profit_pcts
-    portfolio_df["智慧建議停利價"] = final_tps
-    portfolio_df["智慧建議停損價"] = final_sls
-    portfolio_df["智慧買賣點綜合建議"] = recommendations
+    portfolio_df["建議停利價"] = final_tps
+    portfolio_df["建議停損價"] = final_sls
+    portfolio_df["多指標綜合建議"] = recommendations
     portfolio_df["狀態"] = alerts
 
     # --- 分頁籤呈現：台股與美股分開 ---
-    tab_tw, tab_us = st.tabs(["🇹🇼 台股持股專區", "🇺🇸 美股/其他持股專區"])
+    tab_tw, tab_us = st.tabs(["🇹🇼 台股監控儀表板", "🇺🇸 美股/其他監控儀表板"])
 
     with tab_tw:
         tw_df = portfolio_df[portfolio_df["市場"] == "台股"]
@@ -260,10 +319,15 @@ if not st.session_state.portfolio.empty:
             tw_profit = tw_value - tw_cost
             tw_profit_pct = (tw_profit / tw_cost) * 100 if tw_cost > 0 else 0
             
+            # 科技感儀表板卡片
             c1, c2, c3 = st.columns(3)
-            c1.metric("台股總投資成本", f"${tw_cost:,.2f}")
-            c2.metric("台股目前總市值", f"${tw_value:,.2f}")
-            c3.metric("台股總未實現損益", f"${tw_profit:,.2f}", f"{tw_profit_pct:.2f}%")
+            with c1:
+                st.markdown(f'<div class="metric-card"><div class="metric-title">台股總投資成本</div><div class="metric-value">${tw_cost:,.2f}</div></div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown(f'<div class="metric-card"><div class="metric-title">台股目前總市值</div><div class="metric-value">${tw_value:,.2f}</div></div>', unsafe_allow_html=True)
+            with c3:
+                color_style = "color: #34d399;" if tw_profit >= 0 else "color: #f87171;"
+                st.markdown(f'<div class="metric-card"><div class="metric-title">台股總未實現損益</div><div class="metric-value" style="{color_style}">${tw_profit:,.2f} ({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
             st.info("目前尚無台股持股紀錄。")
 
@@ -277,21 +341,29 @@ if not st.session_state.portfolio.empty:
             us_profit_pct = (us_profit / us_cost) * 100 if us_cost > 0 else 0
             
             u1, u2, u3 = st.columns(3)
-            u1.metric("美股總投資成本", f"${us_cost:,.2f}")
-            u2.metric("美股目前總市值", f"${us_value:,.2f}")
-            u3.metric("美股總未實現損益", f"${us_profit:,.2f}", f"{us_profit_pct:.2f}%")
+            with u1:
+                st.markdown(f'<div class="metric-card"><div class="metric-title">美股總投資成本</div><div class="metric-value">${us_cost:,.2f}</div></div>', unsafe_allow_html=True)
+            with u2:
+                st.markdown(f'<div class="metric-card"><div class="metric-title">美股目前總市值</div><div class="metric-value">${us_value:,.2f}</div></div>', unsafe_allow_html=True)
+            with u3:
+                color_style = "color: #34d399;" if us_profit >= 0 else "color: #f87171;"
+                st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.2f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
             st.info("目前尚無美股/其他持股紀錄。")
 
-    # 全體總結
+    # 全體總結儀表板
     st.markdown("---")
     sum_cost = portfolio_df["總成本"].sum()
     sum_value = portfolio_df["市值"].sum()
     total_profit = sum_value - sum_cost
     total_profit_pct = (total_profit / sum_cost) * 100 if sum_cost > 0 else 0
 
-    st.subheader("🌐 全體資產總結")
+    st.subheader("🌐 總體資產戰情室 (Dashboard)")
     col_a, col_b, col_c = st.columns(3)
-    col_a.metric("總投資成本", f"${sum_cost:,.2f}")
-    col_b.metric("目前總市值", f"${sum_value:,.2f}")
-    col_c.metric("總未實現損益", f"${total_profit:,.2f}", f"{total_profit_pct:.2f}%")
+    with col_a:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">總投資成本</div><div class="metric-value">${sum_cost:,.2f}</div></div>', unsafe_allow_html=True)
+    with col_b:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">目前總市值</div><div class="metric-value">${sum_value:,.2f}</div></div>', unsafe_allow_html=True)
+    with col_c:
+        tot_color = "color: #34d399;" if total_profit >= 0 else "color: #f87171;"
+        st.markdown(f'<div class="metric-card"><div class="metric-title">全體總未實現損益</div><div class="metric-value" style="{tot_color}">${total_profit:,.2f} ({total_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
