@@ -6,7 +6,7 @@ import yfinance as yf
 st.set_page_config(page_title="個人持股健檢與智慧買賣點系統", layout="wide")
 
 st.title("📈 個人持股健檢與智慧買賣點面板")
-st.markdown("台股直接輸入代號（如 `2330`），系統將自動結合四大指標，並**智慧推薦建議的停利與停損價位**！")
+st.markdown("支援直接輸入**中文名稱**（如：台積電、聯發科）或代號（如：2330），系統將自動帶入並智慧推薦停利停損價位！")
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
@@ -42,54 +42,70 @@ def calculate_bollinger_bands(series, window=20, num_std=2):
     except Exception:
         return series, series, series
 
-# 取得股票名稱的輔助函數
-def get_stock_name(ticker):
+# 智慧解析輸入（支援直接打中文找台股代號，或直接輸入代號）
+def resolve_ticker(user_input):
+    clean_input = user_input.strip()
+    
+    # 常用台股中文關鍵字對照表（確保免聯網搜尋也能秒查）
+    common_tw_stocks = {
+        "台積電": "2330.TW", "鴻海": "2317.TW", "聯發科": "2454.TW", 
+        "廣達": "2382.TW", "台達電": "2308.TW", "聯電": "2303.TW",
+        "富邦金": "2881.TW", "國泰金": "2882.TW", "中信金": "2891.TW",
+        "長榮": "2603.TW", "陽明": "2609.TW", "萬海": "2615.TW",
+        "大立光": "3008.TW", "中華電": "2412.TW", "台塑": "1301.TW"
+    }
+    
+    if clean_input in common_tw_stocks:
+        ticker = common_tw_stocks[clean_input]
+    elif clean_input.isdigit():
+        # 純數字預設為台股代號
+        ticker = clean_input + ".TW"
+    elif "." not in clean_input and not clean_input.isalpha():
+        ticker = clean_input + ".TW"
+    else:
+        # 英文代號或已包含點的格式（如 AAPL 或 2330.TW）
+        ticker = clean_input.upper()
+        
+    # 取得名稱與市場分類
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
         name = info.get('longName') or info.get('shortName') or ticker
-        return name
     except Exception:
-        return ticker
+        name = ticker
+        
+    market = "台股" if (".TW" in ticker or ".TWO" in ticker) else "美股/其他"
+    return ticker, name, market
 
 # --- 主畫面：輸入持股資料 ---
-st.subheader("📝 輸入你的持股清單（未設定目標價者，系統將自動推薦）")
+st.subheader("📝 輸入你的持股清單（可直接輸入中文名稱或代號）")
 
 if "portfolio" not in st.session_state:
     st.session_state.portfolio = pd.DataFrame(
-        columns=["股票代號", "股票名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"]
+        columns=["股票代號", "顯示名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"]
     )
 
 with st.form("stock_form"):
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        ticker_input = st.text_input("股票代號 (台股例: 2330 / 美股例: AAPL)", value="2330")
+        ticker_input = st.text_input("中文名稱或代號 (例: 台積電 或 2330)", value="台積電")
     with col2:
         shares_input = st.number_input("買入股數", min_value=1, value=1000)
     with col3:
         cost_input = st.number_input("買入均價", min_value=0.0, value=600.0)
     with col4:
-        # 允許留空或預設為 0，代表讓系統自動幫忙計算建議值
-        tp_input = st.number_input("停利目標價 (填 0 代表由系統自動建議)", min_value=0.0, value=0.0)
+        tp_input = st.number_input("停利目標價 (填 0 代表自動建議)", min_value=0.0, value=0.0)
     with col5:
-        sl_input = st.number_input("停損目標價 (填 0 代表由系統自動建議)", min_value=0.0, value=0.0)
+        sl_input = st.number_input("停損目標價 (填 0 代表自動建議)", min_value=0.0, value=0.0)
     
     submitted = st.form_submit_button("新增 / 更新持股")
     if submitted:
-        raw_input = ticker_input.upper().strip()
-        
-        if "." not in raw_input:
-            clean_ticker = raw_input + ".TW"
-            market = "台股"
-        else:
-            clean_ticker = raw_input
-            market = "美股/其他"
-            
-        stock_name = get_stock_name(clean_ticker)
+        ticker, stock_name, market = resolve_ticker(ticker_input)
+        display_name = f"{ticker} ({stock_name})"
         
         new_data = pd.DataFrame({
-            "股票代號": [clean_ticker],
-            "股票名稱": [stock_name],
+            "股票代號": [ticker],
+            "顯示名稱": [display_name],
             "市場": [market],
             "買入股數": [shares_input],
             "買入均價": [cost_input],
@@ -98,9 +114,9 @@ with st.form("stock_form"):
         })
         
         st.session_state.portfolio = pd.concat(
-            [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != clean_ticker], new_data]
+            [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_data]
         ).reset_index(drop=True)
-        st.success(f"已成功加入/更新 {clean_ticker} ({stock_name})！")
+        st.success(f"已成功加入/更新：{display_name}！")
 
 # 顯示目前持股表格與多指標健檢
 if not st.session_state.portfolio.empty:
@@ -153,18 +169,15 @@ if not st.session_state.portfolio.empty:
         except Exception:
             pass
             
-        # --- 自動推薦停利與停損價機制 ---
-        # 如果使用者沒有輸入（即為 0），則由系統根據布林通道與成本自動計算
+        # 自動推薦停利與停損價
         if user_tp > 0:
             suggested_tp = user_tp
         else:
-            # 智慧停利：以布林通道上軌或成本價往上 15% 取較高者
             suggested_tp = round(max(u_val, cost * 1.15), 2)
 
         if user_sl > 0:
             suggested_sl = user_sl
         else:
-            # 智慧停損：以布林通道下軌或成本價往下 8% 取較低者（保護本金）
             suggested_sl = round(min(l_val, cost * 0.92), 2)
 
         market_value = current_price * shares
@@ -204,7 +217,6 @@ if not st.session_state.portfolio.empty:
         else:
             rec_msg = f"⚪ 【震盪觀望】多空交錯，區間操作。"
 
-        # 狀態檢查（依據智慧計算後的價位）
         alert_msg = "正常"
         if current_price >= suggested_tp:
             alert_msg = "🎯 達成智慧停利目標！"
@@ -222,6 +234,10 @@ if not st.session_state.portfolio.empty:
         indicators_info.append(f"RSI:{rsi:.1f} | MA60:{ma60:.1f}")
         alerts.append(alert_msg)
 
+    # 替換表格中的代號欄位為顯示名稱
+    portfolio_df["標的名稱"] = portfolio_df["顯示名稱"]
+    portfolio_df = portfolio_df.drop(columns=["股票代號", "顯示名稱"])
+
     portfolio_df["現價"] = current_prices
     portfolio_df["市值"] = total_market_values
     portfolio_df["總成本"] = total_costs
@@ -229,7 +245,7 @@ if not st.session_state.portfolio.empty:
     portfolio_df["報酬率 (%)"] = profit_pcts
     portfolio_df["智慧建議停利價"] = final_tps
     portfolio_df["智慧建議停損價"] = final_sls
-    portfolio_df["智慧買賣點建議"] = recommendations
+    portfolio_df["智慧買賣點綜合建議"] = recommendations
     portfolio_df["狀態"] = alerts
 
     # --- 分頁籤呈現：台股與美股分開 ---
