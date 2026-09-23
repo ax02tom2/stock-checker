@@ -66,7 +66,7 @@ def save_portfolio(uid, df):
     conn.commit()
     conn.close()
 
-# 注入科技感暗色系與儀表板專用 CSS
+# 注入科技感暗色系與台股紅綠習慣 CSS (紅賺綠賠)
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
@@ -306,7 +306,8 @@ if not current_portfolio.empty:
             with c1: st.markdown(f'<div class="metric-card"><div class="metric-title">台股總投資成本</div><div class="metric-value">${tw_cost:,.2f}</div></div>', unsafe_allow_html=True)
             with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">台股目前總市值</div><div class="metric-value">${tw_value:,.2f}</div></div>', unsafe_allow_html=True)
             with c3: 
-                color_style = "color: #34d399;" if tw_profit >= 0 else "color: #f87171;"
+                # 台股習慣：賺錢(正)顯示紅色，賠錢(負)顯示綠色
+                color_style = "color: #f87171;" if tw_profit >= 0 else "color: #34d399;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">台股總未實現損益</div><div class="metric-value" style="{color_style}">${tw_profit:,.2f} ({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
             st.info("目前尚無台股持股紀錄。")
@@ -323,7 +324,8 @@ if not current_portfolio.empty:
             with u1: st.markdown(f'<div class="metric-card"><div class="metric-title">美股總投資成本</div><div class="metric-value">${us_cost:,.2f}</div></div>', unsafe_allow_html=True)
             with u2: st.markdown(f'<div class="metric-card"><div class="metric-title">美股目前總市值</div><div class="metric-value">${us_value:,.2f}</div></div>', unsafe_allow_html=True)
             with u3: 
-                color_style = "color: #34d399;" if us_profit >= 0 else "color: #f87171;"
+                # 賺錢(正)顯示紅色，賠錢(負)顯示綠色
+                color_style = "color: #f87171;" if us_profit >= 0 else "color: #34d399;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.2f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
             st.info("目前尚無美股/其他持股紀錄。")
