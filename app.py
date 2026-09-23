@@ -7,7 +7,7 @@ from streamlit_local_storage import LocalStorage
 
 # 設定網頁寬度與標題
 st.set_page_config(
-    page_title="QUANT DASHBOARD | 智慧持股健檢儀表板",
+    page_title="智慧持股健檢儀表板",
     page_icon="⚡",
     layout="wide"
 )
@@ -36,8 +36,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ QUANT PORTFOLIO | 智慧持股健檢儀表板")
-st.markdown("🔒 **瀏覽器安全加密儲存**：資料僅保存在您的裝置中，重新整理網頁不遺失，且各裝置資料完全獨立！")
+st.title("⚡ 智慧持股健檢儀表板")
+st.markdown("🔒 **安全加密儲存**：資料僅保存在您的瀏覽器裝置中，重新整理不遺失，且各裝置資料完全獨立！")
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
@@ -69,27 +69,38 @@ def calculate_bollinger_bands(series, window=20, num_std=2):
     except Exception:
         return series, series, series
 
-def resolve_ticker(user_input):
+# 智慧解析與驗證輸入（若代號不存在則回傳 None）
+def resolve_and_verify_ticker(user_input):
     clean_input = str(user_input).strip()
     digits = re.findall(r'\d+', clean_input)
+    
     if digits:
         code = digits[0]
         ticker = code + ".TW"
-        name = twstock.codes[code].name if code in twstock.codes else clean_input
-        market = "台股"
+        # 驗證台股代號是否存在於 twstock 中
+        if code in twstock.codes:
+            name = twstock.codes[code].name
+            market = "台股"
+        else:
+            return None, None, None
     else:
         ticker = clean_input.upper()
+        market = "美股/其他"
         try:
             stock = yf.Ticker(ticker)
-            name = stock.info.get('shortName') or ticker
+            hist = stock.history(period="5d")
+            # 若抓不到歷史資料，代表美股代號不存在
+            if hist.empty:
+                return None, None, None
+            info = stock.info
+            name = info.get('shortName') or ticker
         except:
-            name = ticker
-        market = "美股/其他"
+            return None, None, None
+            
     return ticker, name, market
 
 # --- 初始化 Session State 與載入 Local Storage 資料 ---
 if "portfolio" not in st.session_state:
-    # 嘗試從瀏覽器本地讀取
     saved_json = localS.getItem("quant_user_portfolio")
     if saved_json:
         try:
@@ -115,22 +126,26 @@ with st.form("add_form", clear_on_submit=True):
     
     add_btn = st.form_submit_button("➕ 加入清單")
     if add_btn and t_input:
-        ticker, stock_name, market = resolve_ticker(t_input)
-        new_row = pd.DataFrame({
-            "股票代號": [ticker],
-            "中文名稱": [stock_name],
-            "市場": [market],
-            "買入股數": [s_input],
-            "買入均價": [c_input],
-            "停利目標價": [tp_input],
-            "停損目標價": [sl_input]
-        })
-        st.session_state.portfolio = pd.concat(
-            [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_row]
-        ).reset_index(drop=True)
-        save_to_browser()
-        st.success(f"成功新增：{ticker} {stock_name}")
-        st.rerun()
+        ticker, stock_name, market = resolve_and_verify_ticker(t_input)
+        
+        if ticker is None:
+            st.error(f"❌ 查無此股票代號（「{t_input}」），請確認輸入是否正確！")
+        else:
+            new_row = pd.DataFrame({
+                "股票代號": [ticker],
+                "中文名稱": [stock_name],
+                "市場": [market],
+                "買入股數": [s_input],
+                "買入均價": [c_input],
+                "停利目標價": [tp_input],
+                "停損目標價": [sl_input]
+            })
+            st.session_state.portfolio = pd.concat(
+                [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_row]
+            ).reset_index(drop=True)
+            save_to_browser()
+            st.success(f"成功新增：{ticker} {stock_name}")
+            st.rerun()
 
 # --- 持股管理與刪除 ---
 if not st.session_state.portfolio.empty:
