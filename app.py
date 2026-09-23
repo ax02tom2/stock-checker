@@ -3,12 +3,12 @@ import pandas as pd
 import yfinance as yf
 
 # 設定網頁寬度與標題
-st.set_page_config(page_title="個人持股健檢與多指標智慧買賣點系統", layout="wide")
+st.set_page_config(page_title="個人持股健檢與智慧買賣點系統", layout="wide")
 
-st.title("📈 個人持股健檢與多指標智慧買賣點面板")
-st.markdown("台股直接輸入代號（如 `2330`）即可，美股或外國股票才需加上後綴（如 `AAPL`）！系統將自動綜合四大指標提供智慧買賣點建議。")
+st.title("📈 個人持股健檢與智慧買賣點面板")
+st.markdown("台股直接輸入代號（如 `2330`），系統將自動結合四大指標，並**智慧推薦建議的停利與停損價位**！")
 
-# --- 技術指標計算函數（強化防錯） ---
+# --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
     try:
         delta = series.diff()
@@ -53,7 +53,7 @@ def get_stock_name(ticker):
         return ticker
 
 # --- 主畫面：輸入持股資料 ---
-st.subheader("📝 輸入你的持股清單")
+st.subheader("📝 輸入你的持股清單（未設定目標價者，系統將自動推薦）")
 
 if "portfolio" not in st.session_state:
     st.session_state.portfolio = pd.DataFrame(
@@ -69,15 +69,15 @@ with st.form("stock_form"):
     with col3:
         cost_input = st.number_input("買入均價", min_value=0.0, value=600.0)
     with col4:
-        tp_input = st.number_input("停利目標價", min_value=0.0, value=700.0)
+        # 允許留空或預設為 0，代表讓系統自動幫忙計算建議值
+        tp_input = st.number_input("停利目標價 (填 0 代表由系統自動建議)", min_value=0.0, value=0.0)
     with col5:
-        sl_input = st.number_input("停損目標價", min_value=0.0, value=550.0)
+        sl_input = st.number_input("停損目標價 (填 0 代表由系統自動建議)", min_value=0.0, value=0.0)
     
     submitted = st.form_submit_button("新增 / 更新持股")
     if submitted:
         raw_input = ticker_input.upper().strip()
         
-        # 智慧判斷邏輯：若沒有包含點（.），預設為台股並自動補上 .TW
         if "." not in raw_input:
             clean_ticker = raw_input + ".TW"
             market = "台股"
@@ -104,7 +104,7 @@ with st.form("stock_form"):
 
 # 顯示目前持股表格與多指標健檢
 if not st.session_state.portfolio.empty:
-    st.subheader("📊 持股健檢與多指標綜合分析總覽")
+    st.subheader("📊 持股健檢與智慧買賣點綜合分析總覽")
     
     portfolio_df = st.session_state.portfolio.copy()
     
@@ -113,6 +113,8 @@ if not st.session_state.portfolio.empty:
     total_costs = []
     profits = []
     profit_pcts = []
+    final_tps = []
+    final_sls = []
     recommendations = []
     indicators_info = []
     alerts = []
@@ -121,8 +123,8 @@ if not st.session_state.portfolio.empty:
         ticker = row["股票代號"]
         shares = row["買入股數"]
         cost = row["買入均價"]
-        tp = row["停利目標價"]
-        sl = row["停損目標價"]
+        user_tp = row["停利目標價"]
+        user_sl = row["停損目標價"]
         
         current_price = cost
         ma20, ma60, rsi, m_val, s_val, u_val, l_val = cost, cost, 50, 0, 0, cost, cost
@@ -146,11 +148,25 @@ if not st.session_state.portfolio.empty:
                 rsi = float(rsi_s.iloc[-1]) if not rsi_s.empty else 50
                 m_val = float(macd_s.iloc[-1]) if not macd_s.empty else 0
                 s_val = float(signal_s.iloc[-1]) if not signal_s.empty else 0
-                u_val = float(upper_bb_s.iloc[-1]) if not upper_bb_s.empty else cost
-                l_val = float(lower_bb_s.iloc[-1]) if not lower_bb_s.empty else cost
+                u_val = float(upper_bb_s.iloc[-1]) if not upper_bb_s.empty else cost * 1.1
+                l_val = float(lower_bb_s.iloc[-1]) if not lower_bb_s.empty else cost * 0.9
         except Exception:
             pass
             
+        # --- 自動推薦停利與停損價機制 ---
+        # 如果使用者沒有輸入（即為 0），則由系統根據布林通道與成本自動計算
+        if user_tp > 0:
+            suggested_tp = user_tp
+        else:
+            # 智慧停利：以布林通道上軌或成本價往上 15% 取較高者
+            suggested_tp = round(max(u_val, cost * 1.15), 2)
+
+        if user_sl > 0:
+            suggested_sl = user_sl
+        else:
+            # 智慧停損：以布林通道下軌或成本價往下 8% 取較低者（保護本金）
+            suggested_sl = round(min(l_val, cost * 0.92), 2)
+
         market_value = current_price * shares
         total_cost = cost * shares
         profit = market_value - total_cost
@@ -178,29 +194,32 @@ if not st.session_state.portfolio.empty:
             score -= 2
 
         if score >= 3:
-            rec_msg = f"🟢 【強力買點參考】建議參考價位：約 {l_val:.1f} ~ {ma60:.1f} 附近逢低分批佈局。"
+            rec_msg = f"🟢 【強力買點】建議支撐區：約 {l_val:.1f} ~ {ma60:.1f} 附近逢低佈局。"
         elif score >= 1:
-            rec_msg = f"🟡 【逢低關注】短線回測支撐，可觀察月線({ma20:.1f})附近。"
+            rec_msg = f"🟡 【逢低關注】短線回測月線({ma20:.1f})支撐。"
         elif score <= -3:
-            rec_msg = f"🔴 【強力賣點參考】建議於上軌({u_val:.1f})附近分批停利。"
+            rec_msg = f"🔴 【強力賣點】接近上軌({u_val:.1f})，建議分批停利。"
         elif score <= -1:
-            rec_msg = f"🟠 【偏弱注意】短線動能轉弱，留意風險控制。"
+            rec_msg = f"🟠 【偏弱注意】短線動能轉弱，控制風險。"
         else:
-            rec_msg = f"⚪ 【震盪觀望】多空交錯，區間操作 (季線: {ma60:.1f}, RSI: {rsi:.1f})"
+            rec_msg = f"⚪ 【震盪觀望】多空交錯，區間操作。"
 
+        # 狀態檢查（依據智慧計算後的價位）
         alert_msg = "正常"
-        if current_price >= tp:
-            alert_msg = "🎯 達成停利目標！"
-        elif current_price <= sl:
-            alert_msg = "⚠️ 觸及停損警戒！"
+        if current_price >= suggested_tp:
+            alert_msg = "🎯 達成智慧停利目標！"
+        elif current_price <= suggested_sl:
+            alert_msg = "⚠️ 觸及智慧停損警戒！"
 
         current_prices.append(round(current_price, 2))
         total_market_values.append(round(market_value, 2))
         total_costs.append(round(total_cost, 2))
         profits.append(round(profit, 2))
         profit_pcts.append(round(profit_pct, 2))
+        final_tps.append(suggested_tp)
+        final_sls.append(suggested_sl)
         recommendations.append(rec_msg)
-        indicators_info.append(f"RSI:{rsi:.1f} | MA60:{ma60:.1f} | 布林下:{l_val:.1f}")
+        indicators_info.append(f"RSI:{rsi:.1f} | MA60:{ma60:.1f}")
         alerts.append(alert_msg)
 
     portfolio_df["現價"] = current_prices
@@ -208,8 +227,9 @@ if not st.session_state.portfolio.empty:
     portfolio_df["總成本"] = total_costs
     portfolio_df["未實現損益"] = profits
     portfolio_df["報酬率 (%)"] = profit_pcts
-    portfolio_df["指標數據摘要"] = indicators_info
-    portfolio_df["智慧買賣點綜合建議"] = recommendations
+    portfolio_df["智慧建議停利價"] = final_tps
+    portfolio_df["智慧建議停損價"] = final_sls
+    portfolio_df["智慧買賣點建議"] = recommendations
     portfolio_df["狀態"] = alerts
 
     # --- 分頁籤呈現：台股與美股分開 ---
