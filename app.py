@@ -6,7 +6,7 @@ import yfinance as yf
 st.set_page_config(page_title="個人持股健檢與多指標智慧買賣點系統", layout="wide")
 
 st.title("📈 個人持股健檢與多指標智慧買賣點面板")
-st.markdown("系統自動分類 **台股與美股**，抓取中文名稱，並綜合 **MA均線、RSI、MACD 與布林通道** 四大指標提供智慧買賣點建議！")
+st.markdown("台股直接輸入代號（如 `2330`）即可，美股或外國股票才需加上後綴（如 `AAPL`）！系統將自動綜合四大指標提供智慧買賣點建議。")
 
 # --- 技術指標計算函數（強化防錯） ---
 def calculate_rsi(series, period=14):
@@ -63,7 +63,7 @@ if "portfolio" not in st.session_state:
 with st.form("stock_form"):
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        ticker_input = st.text_input("股票代號 (台股例: 2330.TW / 美股例: AAPL)", value="2330.TW")
+        ticker_input = st.text_input("股票代號 (台股例: 2330 / 美股例: AAPL)", value="2330")
     with col2:
         shares_input = st.number_input("買入股數", min_value=1, value=1000)
     with col3:
@@ -75,8 +75,16 @@ with st.form("stock_form"):
     
     submitted = st.form_submit_button("新增 / 更新持股")
     if submitted:
-        clean_ticker = ticker_input.upper().strip()
-        market = "台股" if (".TW" in clean_ticker or ".TWO" in clean_ticker) else "美股"
+        raw_input = ticker_input.upper().strip()
+        
+        # 智慧判斷邏輯：若沒有包含點（.），預設為台股並自動補上 .TW
+        if "." not in raw_input:
+            clean_ticker = raw_input + ".TW"
+            market = "台股"
+        else:
+            clean_ticker = raw_input
+            market = "美股/其他"
+            
         stock_name = get_stock_name(clean_ticker)
         
         new_data = pd.DataFrame({
@@ -116,7 +124,6 @@ if not st.session_state.portfolio.empty:
         tp = row["停利目標價"]
         sl = row["停損目標價"]
         
-        # 預設值
         current_price = cost
         ma20, ma60, rsi, m_val, s_val, u_val, l_val = cost, cost, 50, 0, 0, cost, cost
         
@@ -128,7 +135,6 @@ if not st.session_state.portfolio.empty:
                 close = hist['Close']
                 current_price = float(close.iloc[-1])
                 
-                # 計算各指標
                 ma20_s = close.rolling(window=min(20, len(close))).mean()
                 ma60_s = close.rolling(window=min(60, len(close))).mean()
                 rsi_s = calculate_rsi(close)
@@ -143,7 +149,6 @@ if not st.session_state.portfolio.empty:
                 u_val = float(upper_bb_s.iloc[-1]) if not upper_bb_s.empty else cost
                 l_val = float(lower_bb_s.iloc[-1]) if not lower_bb_s.empty else cost
         except Exception:
-            # 發生任何例外時保持預設成本價，不讓程式崩潰
             pass
             
         market_value = current_price * shares
@@ -208,7 +213,7 @@ if not st.session_state.portfolio.empty:
     portfolio_df["狀態"] = alerts
 
     # --- 分頁籤呈現：台股與美股分開 ---
-    tab_tw, tab_us = st.tabs(["🇹🇼 台股持股專區", "🇺🇸 美股持股專區"])
+    tab_tw, tab_us = st.tabs(["🇹🇼 台股持股專區", "🇺🇸 美股/其他持股專區"])
 
     with tab_tw:
         tw_df = portfolio_df[portfolio_df["市場"] == "台股"]
@@ -227,7 +232,7 @@ if not st.session_state.portfolio.empty:
             st.info("目前尚無台股持股紀錄。")
 
     with tab_us:
-        us_df = portfolio_df[portfolio_df["市場"] == "美股"]
+        us_df = portfolio_df[portfolio_df["市場"] == "美股/其他"]
         if not us_df.empty:
             st.dataframe(us_df.drop(columns=["市場"]), use_container_width=True)
             us_cost = us_df["總成本"].sum()
@@ -240,7 +245,7 @@ if not st.session_state.portfolio.empty:
             u2.metric("美股目前總市值", f"${us_value:,.2f}")
             u3.metric("美股總未實現損益", f"${us_profit:,.2f}", f"{us_profit_pct:.2f}%")
         else:
-            st.info("目前尚無美股持股紀錄。")
+            st.info("目前尚無美股/其他持股紀錄。")
 
     # 全體總結
     st.markdown("---")
