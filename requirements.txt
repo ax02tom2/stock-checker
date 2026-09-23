@@ -3,4 +3,3 @@ pandas
 yfinance
 requests
 twstock
-streamlit-cookies-controller
