@@ -154,7 +154,7 @@ st.subheader("📝 新增持股部位")
 with st.form("add_form", clear_on_submit=True):
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: t_input = st.text_input("名稱或代號 (例: 旺宏 或 2337)", value="")
-    with c2: s_input = st.number_input("買入股數", min_value=1, value=1000)
+    with c2: s_input = st.number_input("買入股數", min_value=1, value=1000, format="%d")
     with c3: c_input = st.number_input("買入均價", min_value=0.0, value=25.0)
     with c4: tp_input = st.number_input("停利目標價 (0表自動)", min_value=0.0, value=0.0)
     with c5: sl_input = st.number_input("停損目標價 (0表自動)", min_value=0.0, value=0.0)
@@ -192,7 +192,13 @@ if not current_portfolio.empty:
         current_portfolio,
         num_rows="dynamic",
         use_container_width=True,
-        key="portfolio_editor"
+        key="portfolio_editor",
+        column_config={
+            "買入股數": st.column_config.NumberColumn("買入股數", format="{:,}"),
+            "買入均價": st.column_config.NumberColumn("買入均價", format="{:,.2f}"),
+            "停利目標價": st.column_config.NumberColumn("停利目標價", format="{:,.2f}"),
+            "停損目標價": st.column_config.NumberColumn("停損目標價", format="{:,.2f}"),
+        }
     )
     
     if st.button("💾 儲存表格變更"):
@@ -281,6 +287,7 @@ if not current_portfolio.empty:
 
     portfolio_df["標的名稱"] = portfolio_df["中文名稱"]
     portfolio_df = portfolio_df.drop(columns=["股票代號", "中文名稱"])
+    portfolio_df["買入股數"] = portfolio_df["買入股數"]
     portfolio_df["現價"] = current_prices
     portfolio_df["市值"] = total_market_values
     portfolio_df["總成本"] = total_costs
@@ -294,10 +301,22 @@ if not current_portfolio.empty:
     # 分頁呈現
     tab_tw, tab_us = st.tabs(["🇹🇼 台股監控儀表板", "🇺🇸 美股/其他監控儀表板"])
 
+    column_config_dict = {
+        "買入股數": st.column_config.NumberColumn("買入股數", format="{:,}"),
+        "買入均價": st.column_config.NumberColumn("買入均價", format="{:,.2f}"),
+        "現價": st.column_config.NumberColumn("現價", format="{:,.2f}"),
+        "市值": st.column_config.NumberColumn("市值", format="{:,.2f}"),
+        "總成本": st.column_config.NumberColumn("總成本", format="{:,.2f}"),
+        "未實現損益": st.column_config.NumberColumn("未實現損益", format="{:,.2f}"),
+        "報酬率 (%)": st.column_config.NumberColumn("報酬率 (%)", format="{:,.2f}%"),
+        "建議停利價": st.column_config.NumberColumn("建議停利價", format="{:,.2f}"),
+        "建議停損價": st.column_config.NumberColumn("建議停損價", format="{:,.2f}"),
+    }
+
     with tab_tw:
         tw_df = portfolio_df[portfolio_df["市場"] == "台股"]
         if not tw_df.empty:
-            st.dataframe(tw_df.drop(columns=["市場"]), use_container_width=True)
+            st.dataframe(tw_df.drop(columns=["市場"]), use_container_width=True, column_config=column_config_dict)
             tw_cost, tw_value = tw_df["總成本"].sum(), tw_df["市值"].sum()
             tw_profit = tw_value - tw_cost
             tw_profit_pct = (tw_profit / tw_cost) * 100 if tw_cost > 0 else 0
@@ -306,7 +325,6 @@ if not current_portfolio.empty:
             with c1: st.markdown(f'<div class="metric-card"><div class="metric-title">台股總投資成本</div><div class="metric-value">${tw_cost:,.2f}</div></div>', unsafe_allow_html=True)
             with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">台股目前總市值</div><div class="metric-value">${tw_value:,.2f}</div></div>', unsafe_allow_html=True)
             with c3: 
-                # 台股習慣：賺錢(正)顯示紅色，賠錢(負)顯示綠色
                 color_style = "color: #f87171;" if tw_profit >= 0 else "color: #34d399;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">台股總未實現損益</div><div class="metric-value" style="{color_style}">${tw_profit:,.2f} ({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
@@ -315,7 +333,7 @@ if not current_portfolio.empty:
     with tab_us:
         us_df = portfolio_df[portfolio_df["市場"] == "美股/其他"]
         if not us_df.empty:
-            st.dataframe(us_df.drop(columns=["市場"]), use_container_width=True)
+            st.dataframe(us_df.drop(columns=["市場"]), use_container_width=True, column_config=column_config_dict)
             us_cost, us_value = us_df["總成本"].sum(), us_df["市值"].sum()
             us_profit = us_value - us_cost
             us_profit_pct = (us_profit / us_cost) * 100 if us_cost > 0 else 0
@@ -324,8 +342,7 @@ if not current_portfolio.empty:
             with u1: st.markdown(f'<div class="metric-card"><div class="metric-title">美股總投資成本</div><div class="metric-value">${us_cost:,.2f}</div></div>', unsafe_allow_html=True)
             with u2: st.markdown(f'<div class="metric-card"><div class="metric-title">美股目前總市值</div><div class="metric-value">${us_value:,.2f}</div></div>', unsafe_allow_html=True)
             with u3: 
-                # 賺錢(正)顯示紅色，賠錢(負)顯示綠色
                 color_style = "color: #f87171;" if us_profit >= 0 else "color: #34d399;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.2f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
-            st.info("目前尚無美股/其他持股紀錄。")
+            st.info("print('目前尚無美股/其他持股紀錄。')")
