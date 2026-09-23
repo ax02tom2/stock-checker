@@ -188,12 +188,18 @@ if not current_portfolio.empty:
     st.markdown("---")
     st.subheader("🛠️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
     
-    # 移除會導致型態衝突的 column_config，確保編輯器百分之百穩定
+    # 針對編輯器加入安全的數值千分位格式設定
     edited_portfolio = st.data_editor(
         current_portfolio,
         num_rows="dynamic",
         use_container_width=True,
-        key="portfolio_editor"
+        key="portfolio_editor",
+        column_config={
+            "買入股數": st.column_config.NumberColumn("買入股數", format="%d"),
+            "買入均價": st.column_config.NumberColumn("買入均價", format="%.2f"),
+            "停利目標價": st.column_config.NumberColumn("停利目標價", format="%.2f"),
+            "停損目標價": st.column_config.NumberColumn("停損目標價", format="%.2f"),
+        }
     )
     
     if st.button("💾 儲存表格變更"):
@@ -306,7 +312,7 @@ if not current_portfolio.empty:
             tw_display_df = display_df.loc[tw_indices].drop(columns=["市場"])
             st.dataframe(tw_display_df, use_container_width=True)
             
-            tw_cost = total_costs_sum = sum([total_costs[i] for i in tw_indices])
+            tw_cost = sum([total_costs[i] for i in tw_indices])
             tw_value = sum([total_market_values[i] for i in tw_indices])
             tw_profit = tw_value - tw_cost
             tw_profit_pct = (tw_profit / tw_cost) * 100 if tw_cost > 0 else 0
