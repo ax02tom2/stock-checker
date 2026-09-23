@@ -1,28 +1,12 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import requests
 
 # 設定網頁標題
 st.set_page_title("個人持股健檢與多指標智慧買賣點系統", layout="wide")
 
 st.title("📈 個人持股健檢與多指標智慧買賣點面板")
 st.markdown("系統自動綜合 **MA均線、RSI、MACD 與布林通道** 四大主流指標，為你進行深度交叉分析，並給出具體的買賣點與價位建議！")
-
-# --- 側邊欄：LINE Notify 設定 ---
-st.sidebar.header("🔔 LINE 通知設定")
-line_token = st.sidebar.text_input("輸入 LINE Notify 權杖 (Token)", type="password")
-st.sidebar.markdown("[如何取得 LINE Token？](https://notify-bot.line.me/)")
-
-def send_line_notify(token, message):
-    """發送 LINE 通知函式"""
-    if not token:
-        return False
-    url = "https://notify-api.line.me/api/notify"
-    headers = {"Authorization": f"Bearer {token}"}
-    data = {"message": message}
-    response = requests.post(url, headers=headers, data=data)
-    return response.status_code == 200
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
@@ -105,7 +89,6 @@ if not st.session_state.portfolio.empty:
         sl = row["停損目標價"]
         
         try:
-            # 抓取歷史資料（至少半年以計算完整指標）
             stock = yf.Ticker(ticker)
             hist = stock.history(period="6mo")
             
@@ -113,7 +96,6 @@ if not st.session_state.portfolio.empty:
                 close = hist['Close']
                 current_price = close.iloc[-1]
                 
-                # 計算各指標
                 ma20 = close.rolling(window=20).mean().iloc[-1]
                 ma60 = close.rolling(window=60).mean().iloc[-1]
                 rsi = calculate_rsi(close).iloc[-1]
@@ -135,55 +117,38 @@ if not st.session_state.portfolio.empty:
         profit = market_value - total_cost
         profit_pct = (profit / total_cost) * 100 if total_cost > 0 else 0
         
-        # --- 多指標綜合評分與買賣點判定 ---
-        score = 0 # 正分代表偏多/買點，負分代表偏空/賣點
-        reasons = []
-
-        # 1. 均線判斷 (MA60 季線支撐與 MA20 月線)
+        score = 0
         if current_price <= ma60 * 1.02 and current_price >= ma60 * 0.98:
             score += 2
-            reasons.append(f"貼近季線支撐({ma60:.1f})")
         elif current_price < ma60:
             score -= 1
-            reasons.append("跌破季線")
             
-        # 2. RSI 動能判斷
         if rsi < 35:
             score += 2
-            reasons.append(f"RSI超賣({rsi:.1f})")
         elif rsi > 70:
             score -= 2
-            reasons.append(f"RSI過熱({rsi:.1f})")
 
-        # 3. MACD 趨勢判斷
         if m_val > s_val:
             score += 1
-            reasons.append("MACD多頭")
         else:
             score -= 1
-            reasons.append("MACD空頭")
 
-        # 4. 布林通道位置判斷
         if current_price <= l_val * 1.01:
             score += 2
-            reasons.append(f"觸及布林下軌({l_val:.1f})")
         elif current_price >= u_val * 0.99:
             score -= 2
-            reasons.append(f"觸及布林上軌({u_val:.1f})")
 
-        # 綜合建議產出
         if score >= 3:
-            rec_msg = f"🟢 【強力買點參考】多項指標顯示超跌或強支撐。綜合建議參考價位：約 {l_val:.1f} ~ {ma60:.1f} 附近逢低分批佈局。"
+            rec_msg = f"🟢 【強力買點參考】建議參考價位：約 {l_val:.1f} ~ {ma60:.1f} 附近逢低分批佈局。"
         elif score >= 1:
-            rec_msg = f"🟡 【逢低關注】短線回測支撐，可觀察月線({ma20:.1f})附近有無守住。"
+            rec_msg = f"🟡 【逢低關注】短線回測支撐，可觀察月線({ma20:.1f})附近。"
         elif score <= -3:
-            rec_msg = f"🔴 【強力賣點參考】多指標過熱或結構轉弱。建議參考價位：逢高調節或於上軌({u_val:.1f})附近分批停利。"
+            rec_msg = f"🔴 【強力賣點參考】建議於上軌({u_val:.1f})附近分批停利。"
         elif score <= -1:
-            rec_msg = f"🟠 【偏弱注意】短線動能轉弱，留意乖離與風險控制。"
+            rec_msg = f"🟠 【偏弱注意】短線動能轉弱，留意風險控制。"
         else:
-            rec_msg = f"⚪ 【震盪觀望】多空交錯，暫時區間操作 (季線: {ma60:.1f}, RSI: {rsi:.1f})"
+            rec_msg = f"⚪ 【震盪觀望】多空交錯，區間操作 (季線: {ma60:.1f}, RSI: {rsi:.1f})"
 
-        # 停利停損警示
         alert_msg = "正常"
         if current_price >= tp:
             alert_msg = "🎯 達成停利目標！"
@@ -210,7 +175,6 @@ if not st.session_state.portfolio.empty:
 
     st.dataframe(portfolio_df, use_container_width=True)
 
-    # 總結數據
     sum_cost = portfolio_df["總成本"].sum()
     sum_value = portfolio_df["市值"].sum()
     total_profit = sum_value - sum_cost
@@ -220,21 +184,3 @@ if not st.session_state.portfolio.empty:
     col_a.metric("總投資成本", f"${sum_cost:,.2f}")
     col_b.metric("目前總市值", f"${sum_value:,.2f}")
     col_c.metric("總未實現損益", f"${total_profit:,.2f}", f"{total_profit_pct:.2f}%")
-
-    # LINE 通知按鈕
-    if st.button("🚀 檢查並發送 LINE 提醒"):
-        notification_sent = False
-        msg = "\n📌 【多指標持股健檢通知】\n"
-        for index, row in portfolio_df.iterrows():
-            if "達成" in row["狀態"] or "觸及" in row["狀態"] or "強力買點" in row["智慧買賣點綜合建議"] or "強力賣點" in row["智慧買賣點綜合建議"]:
-                msg += f"\n• 股票: {row['股票代號']}\n  現價: {row['現價']}\n  建議: {row['智慧買賣點綜合建議']}\n"
-                notification_sent = True
-        
-        if notification_sent:
-            success = send_line_notify(line_token, msg)
-            if success:
-                st.success("LINE 通知發送成功！")
-            else:
-                st.error("發送失敗，請檢查 LINE Token 是否正確。")
-        else:
-            st.info("目前沒有股票觸及極端的買賣點或停利停損價。")
