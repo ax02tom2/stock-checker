@@ -3,4 +3,4 @@ pandas
 yfinance
 requests
 twstock
-streamlit-local-storage
+streamlit-cookies-controller
