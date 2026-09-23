@@ -3,8 +3,7 @@ import pandas as pd
 import yfinance as yf
 import re
 import twstock
-import sqlite3
-import hashlib
+from streamlit_local_storage import LocalStorage
 
 # 設定網頁寬度與標題
 st.set_page_config(
@@ -13,84 +12,10 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 資料庫初始化 ---
-def init_db():
-    conn = sqlite3.connect('quant_portfolio.db', check_same_thread=False)
-    c = conn.cursor()
-    # 使用者帳號表
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password TEXT
-        )
-    ''')
-    # 使用者持股表
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS portfolios (
-            username TEXT,
-            ticker TEXT,
-            chinese_name TEXT,
-            market TEXT,
-            shares REAL,
-            cost REAL,
-            tp REAL,
-            sl REAL,
-            PRIMARY KEY (username, ticker)
-        )
-    ''')
-    conn.commit()
-    conn.close()
+# 初始化本地儲存元件
+localS = LocalStorage()
 
-init_db()
-
-# 密碼加密
-def make_hash(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
-
-def check_user(username, password):
-    conn = sqlite3.connect('quant_portfolio.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('SELECT password FROM users WHERE username = ?', (username,))
-    data = c.fetchone()
-    conn.close()
-    if data and data[0] == make_hash(password):
-        return True
-    return False
-
-def register_user(username, password):
-    conn = sqlite3.connect('quant_portfolio.db', check_same_thread=False)
-    c = conn.cursor()
-    try:
-        c.execute('INSERT INTO users(username, password) VALUES (?, ?)', (username, make_hash(password)))
-        conn.commit()
-        conn.close()
-        return True
-    except:
-        conn.close()
-        return False
-
-# 從資料庫載入特定使用者的持股
-def load_user_portfolio(username):
-    conn = sqlite3.connect('quant_portfolio.db', check_same_thread=False)
-    df = pd.read_sql('SELECT ticker as "股票代號", chinese_name as "中文名稱", market as "市場", shares as "買入股數", cost as "買入均價", tp as "停利目標價", sl as "停損目標價" FROM portfolios WHERE username = ?', conn, params=(username,))
-    conn.close()
-    return df
-
-# 儲存特定使用者的持股到資料庫
-def save_user_portfolio(username, df):
-    conn = sqlite3.connect('quant_portfolio.db', check_same_thread=False)
-    c = conn.cursor()
-    # 先刪除該使用者舊資料，再全部寫入最新資料
-    c.execute('DELETE FROM portfolios WHERE username = ?', (username,))
-    for _, row in df.iterrows():
-        c.execute('''
-            INSERT OR REPLACE INTO portfolios (username, ticker, chinese_name, market, shares, cost, tp, sl)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (username, row["股票代號"], row["中文名稱"], row["市場"], row["買入股數"], row["買入均價"], row["停利目標價"], row["停損目標價"]))
-    conn.commit()
-    conn.close()
-
-# --- 注入科技感 CSS ---
+# 注入科技感暗色系與儀表板專用 CSS
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
@@ -103,60 +28,18 @@ st.markdown("""
         text-align: center;
         margin-bottom: 15px;
     }
-    .metric-title { color: #9ca3af; font-size: 14px; font-weight: 600; text-transform: uppercase; }
+    .metric-title { color: #9ca3af; font-size: 14px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
     .metric-value { color: #f3f4f6; font-size: 24px; font-weight: 700; margin-top: 5px; }
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] { background-color: #1f2937; border-radius: 8px 8px 0px 0px; color: #d1d5db; padding: 10px 20px; font-weight: 600; }
     .stTabs [aria-selected="true"] { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important; color: white !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 登入控制系統 ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = ""
-
-if not st.session_state.logged_in:
-    st.title("⚡ QUANT PORTFOLIO | 系統登入")
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.subheader("🔑 會員登入")
-        log_user = st.text_input("帳號", key="log_u")
-        log_pass = st.text_input("密碼", type="password", key="log_p")
-        if st.button("登入"):
-            if check_user(log_user, log_pass):
-                st.session_state.logged_in = True
-                st.session_state.username = log_user
-                st.rerun()
-            else:
-                st.error("帳號或密碼錯誤！")
-    with col2:
-        st.subheader("📝 註冊新帳號")
-        reg_user = st.text_input("設定帳號", key="reg_u")
-        reg_pass = st.text_input("設定密碼", type="password", key="reg_p")
-        if st.button("註冊"):
-            if reg_user and reg_pass:
-                if register_user(reg_user, reg_pass):
-                    st.success("註冊成功！請直接在左側登入。")
-                else:
-                    st.error("此帳號已被註冊過！")
-            else:
-                st.warning("請輸入完整帳號密碼。")
-    st.stop()
-
-# --- 登入後的主畫面 ---
-st.sidebar.success(q_user := f"歡迎回來，{st.session_state.username}！")
-if st.sidebar.button("登出帳號"):
-    st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.rerun()
-
 st.title("⚡ QUANT PORTFOLIO | 智慧持股健檢儀表板")
+st.markdown("🔒 **瀏覽器安全加密儲存**：資料僅保存在您的裝置中，重新整理網頁不遺失，且各裝置資料完全獨立！")
 
-# 載入該使用者的持股資料庫
-current_user = st.session_state.username
-db_portfolio = load_user_portfolio(current_user)
-
-# 技術指標計算函數
+# --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
     try:
         delta = series.diff()
@@ -204,6 +87,22 @@ def resolve_ticker(user_input):
         market = "美股/其他"
     return ticker, name, market
 
+# --- 初始化 Session State 與載入 Local Storage 資料 ---
+if "portfolio" not in st.session_state:
+    # 嘗試從瀏覽器本地讀取
+    saved_json = localS.getItem("quant_user_portfolio")
+    if saved_json:
+        try:
+            st.session_state.portfolio = pd.read_json(saved_json, orient="split")
+        except:
+            st.session_state.portfolio = pd.DataFrame(columns=["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"])
+    else:
+        st.session_state.portfolio = pd.DataFrame(columns=["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"])
+
+def save_to_browser():
+    json_data = st.session_state.portfolio.to_json(orient="split", force_ascii=False)
+    localS.setItem("quant_user_portfolio", json_data)
+
 # --- 新增持股區塊 ---
 st.subheader("📝 新增持股部位")
 with st.form("add_form", clear_on_submit=True):
@@ -226,36 +125,36 @@ with st.form("add_form", clear_on_submit=True):
             "停利目標價": [tp_input],
             "停損目標價": [sl_input]
         })
-        if not db_portfolio.empty:
-            updated_df = pd.concat([db_portfolio[db_portfolio["股票代號"] != ticker], new_row]).reset_index(drop=True)
-        else:
-            updated_df = new_row
-        save_user_portfolio(current_user, updated_df)
+        st.session_state.portfolio = pd.concat(
+            [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_row]
+        ).reset_index(drop=True)
+        save_to_browser()
         st.success(f"成功新增：{ticker} {stock_name}")
         st.rerun()
 
 # --- 持股管理與刪除 ---
-if not db_portfolio.empty:
+if not st.session_state.portfolio.empty:
     st.markdown("---")
     st.subheader("🛠️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
     
     edited_portfolio = st.data_editor(
-        db_portfolio,
+        st.session_state.portfolio,
         num_rows="dynamic",
         use_container_width=True,
         key="portfolio_editor"
     )
     
     if st.button("💾 儲存表格變更"):
-        save_user_portfolio(current_user, edited_portfolio)
-        st.success("變更已永久儲存至資料庫！")
+        st.session_state.portfolio = edited_portfolio
+        save_to_browser()
+        st.success("變更已永久儲存至您的瀏覽器！")
         st.rerun()
 
     # --- 盤勢健檢與儀表板計算 ---
     st.markdown("---")
     st.subheader("📊 多指標智慧買賣點戰情室")
     
-    portfolio_df = edited_portfolio.copy()
+    portfolio_df = st.session_state.portfolio.copy()
     current_prices, total_market_values, total_costs, profits, profit_pcts, final_tps, final_sls, recommendations, alerts = [], [], [], [], [], [], [], [], []
 
     for index, row in portfolio_df.iterrows():
