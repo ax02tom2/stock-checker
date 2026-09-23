@@ -8,34 +8,44 @@ st.set_page_config(page_title="個人持股健檢與多指標智慧買賣點系�
 st.title("📈 個人持股健檢與多指標智慧買賣點面板")
 st.markdown("系統自動分類 **台股與美股**，抓取中文名稱，並綜合 **MA均線、RSI、MACD 與布林通道** 四大指標提供智慧買賣點建議！")
 
-# --- 技術指標計算函數 ---
+# --- 技術指標計算函數（強化防錯） ---
 def calculate_rsi(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+    try:
+        delta = series.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    except Exception:
+        return pd.Series(50, index=series.index)
 
 def calculate_macd(series, fast=12, slow=26, signal=9):
-    exp1 = series.ewm(span=fast, adjust=False).mean()
-    exp2 = series.ewm(span=slow, adjust=False).mean()
-    macd = exp1 - exp2
-    signal_line = macd.ewm(span=signal, adjust=False).mean()
-    hist = macd - signal_line
-    return macd, signal_line, hist
+    try:
+        exp1 = series.ewm(span=fast, adjust=False).mean()
+        exp2 = series.ewm(span=slow, adjust=False).mean()
+        macd = exp1 - exp2
+        signal_line = macd.ewm(span=signal, adjust=False).mean()
+        hist = macd - signal_line
+        return macd, signal_line, hist
+    except Exception:
+        zero_series = pd.Series(0, index=series.index)
+        return zero_series, zero_series, zero_series
 
 def calculate_bollinger_bands(series, window=20, num_std=2):
-    ma = series.rolling(window=window).mean()
-    std = series.rolling(window=window).std()
-    upper = ma + (std * num_std)
-    lower = ma - (std * num_std)
-    return upper, ma, lower
+    try:
+        ma = series.rolling(window=window).mean()
+        std = series.rolling(window=window).std()
+        upper = ma + (std * num_std)
+        lower = ma - (std * num_std)
+        return upper, ma, lower
+    except Exception:
+        return series, series, series
 
-# 取得股票中文/英文名稱的輔助函數
+# 取得股票名稱的輔助函數
 def get_stock_name(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # 嘗試從 yfinance 取得公司名稱
         info = stock.info
         name = info.get('longName') or info.get('shortName') or ticker
         return name
@@ -66,7 +76,6 @@ with st.form("stock_form"):
     submitted = st.form_submit_button("新增 / 更新持股")
     if submitted:
         clean_ticker = ticker_input.upper().strip()
-        # 自動判斷市場與名稱
         market = "台股" if (".TW" in clean_ticker or ".TWO" in clean_ticker) else "美股"
         stock_name = get_stock_name(clean_ticker)
         
@@ -80,7 +89,6 @@ with st.form("stock_form"):
             "停損目標價": [sl_input]
         })
         
-        # 濾除舊有重複代號後加入新資料
         st.session_state.portfolio = pd.concat(
             [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != clean_ticker], new_data]
         ).reset_index(drop=True)
@@ -108,29 +116,35 @@ if not st.session_state.portfolio.empty:
         tp = row["停利目標價"]
         sl = row["停損目標價"]
         
+        # 預設值
+        current_price = cost
+        ma20, ma60, rsi, m_val, s_val, u_val, l_val = cost, cost, 50, 0, 0, cost, cost
+        
         try:
             stock = yf.Ticker(ticker)
             hist = stock.history(period="6mo")
             
-            if not hist.empty and len(hist) > 60:
+            if not hist.empty and len(hist) > 10:
                 close = hist['Close']
-                current_price = close.iloc[-1]
+                current_price = float(close.iloc[-1])
                 
-                ma20 = close.rolling(window=20).mean().iloc[-1]
-                ma60 = close.rolling(window=60).mean().iloc[-1]
-                rsi = calculate_rsi(close).iloc[-1]
-                macd, signal, hist_macd = calculate_macd(close)
-                m_val = macd.iloc[-1]
-                s_val = signal.iloc[-1]
-                upper_bb, mid_bb, lower_bb = calculate_bollinger_bands(close)
-                u_val = upper_bb.iloc[-1]
-                l_val = lower_bb.iloc[-1]
-            else:
-                current_price = cost
-                ma20, ma60, rsi, m_val, s_val, u_val, l_val = cost, cost, 50, 0, 0, cost, cost
+                # 計算各指標
+                ma20_s = close.rolling(window=min(20, len(close))).mean()
+                ma60_s = close.rolling(window=min(60, len(close))).mean()
+                rsi_s = calculate_rsi(close)
+                macd_s, signal_s, _ = calculate_macd(close)
+                upper_bb_s, _, lower_bb_s = calculate_bollinger_bands(close)
+                
+                ma20 = float(ma20_s.iloc[-1]) if not ma20_s.empty else cost
+                ma60 = float(ma60_s.iloc[-1]) if not ma60_s.empty else cost
+                rsi = float(rsi_s.iloc[-1]) if not rsi_s.empty else 50
+                m_val = float(macd_s.iloc[-1]) if not macd_s.empty else 0
+                s_val = float(signal_s.iloc[-1]) if not signal_s.empty else 0
+                u_val = float(upper_bb_s.iloc[-1]) if not upper_bb_s.empty else cost
+                l_val = float(lower_bb_s.iloc[-1]) if not lower_bb_s.empty else cost
         except Exception:
-            current_price = cost
-            ma20, ma60, rsi, m_val, s_val, u_val, l_val = cost, cost, 50, 0, 0, cost, cost
+            # 發生任何例外時保持預設成本價，不讓程式崩潰
+            pass
             
         market_value = current_price * shares
         total_cost = cost * shares
