@@ -1,15 +1,17 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+import re
+import twstock
 
-# 設定網頁寬度與標題（強制啟用寬螢幕模式）
+# 設定網頁寬度與標題
 st.set_page_config(
     page_title="QUANT DASHBOARD | 智慧持股健檢儀表板",
     page_icon="⚡",
     layout="wide"
 )
 
-# --- 注入科技感暗色系與儀表板專用 CSS ---
+# 注入科技感暗色系與儀表板專用 CSS
 st.markdown("""
     <style>
     .main {
@@ -55,7 +57,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ QUANT PORTFOLIO | 智慧持股健檢儀表板")
-st.markdown("🔹 **即時多指標交叉分析** (MA均線、RSI、MACD、布林通道) | **智慧動態停利停損**")
+st.markdown("支援直接輸入 **`旺宏(2337)`**、**`2337`** 或美股代號（如 `AAPL`），系統將自動解析並提供中文名稱與多指標分析！")
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
@@ -91,41 +93,24 @@ def calculate_bollinger_bands(series, window=20, num_std=2):
     except Exception:
         return series, series, series
 
-# 智慧解析輸入（確保中文名稱完美對應）
+# 智慧解析輸入（完美支援 旺宏(2337)、2337、AAPL）
 def resolve_ticker(user_input):
     clean_input = user_input.strip()
     
-    # 擴充常用台股中文對照表（保證顯示純中文）
-    tw_stock_map = {
-        "台積電": ("2330.TW", "台積電"), "鴻海": ("2317.TW", "鴻海"), 
-        "聯發科": ("2454.TW", "聯發科"), "廣達": ("2382.TW", "廣達"), 
-        "台達電": ("2308.TW", "台達電"), "聯電": ("2303.TW", "聯電"),
-        "富邦金": ("2881.TW", "富邦金"), "國泰金": ("2882.TW", "國泰金"), 
-        "中信金": ("2891.TW", "中信金"), "長榮": ("2603.TW", "長榮"), 
-        "陽明": ("2609.TW", "陽明"), "萬海": ("2615.TW", "萬海"),
-        "大立光": ("3008.TW", "大立光"), "中華電": ("2412.TW", "中華電"), 
-        "台塑": ("1301.TW", "台塑"), "緯創": ("3231.TW", "緯創"),
-        "南亞": ("1303.TW", "南亞"), "台塑化": ("6505.TW", "台塑化")
-    }
+    # 利用正規表達式抓出輸入中的數字（例如從 "旺宏(2337)" 中抓出 "2337"）
+    digits = re.findall(r'\d+', clean_input)
     
-    if clean_input in tw_stock_map:
-        ticker, name = tw_stock_map[clean_input]
-    elif clean_input.isdigit() or (clean_input.replace('.','',1).isdigit() and len(clean_input) <= 6):
-        if not clean_input.endswith(".TW") and not clean_input.endswith(".TWO"):
-            ticker = clean_input + ".TW"
+    if digits:
+        code = digits[0] # 取出第一個數字組合當作台股代號
+        ticker = code + ".TW"
+        # 透過 twstock 取得精準繁體中文名稱
+        if code in twstock.codes:
+            name = twstock.codes[code].name
         else:
-            ticker = clean_input
-        # 試著從網路抓取或給予代號
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            name = info.get('chineseName') or info.get('shortName') or ticker
-            if "Taiwan Semiconductor" in name: name = "台積電"
-            elif "Hon Hai" in name: name = "鴻海"
-            elif "MediaTek" in name: name = "聯發科"
-        except:
-            name = ticker
+            name = clean_input
+        market = "台股"
     else:
+        # 如果沒有數字，視為美股或其他英文代號
         ticker = clean_input.upper()
         try:
             stock = yf.Ticker(ticker)
@@ -133,11 +118,11 @@ def resolve_ticker(user_input):
             name = info.get('shortName') or ticker
         except:
             name = ticker
-            
-    market = "台股" if (".TW" in ticker or ".TWO" in ticker) else "美股/其他"
+        market = "美股/其他"
+        
     return ticker, name, market
 
-# --- 主畫面：儀表板控制面板 ---
+# --- 主畫面：控制面板 ---
 st.subheader("📝 新增 / 更新持股部位")
 
 if "portfolio" not in st.session_state:
@@ -148,11 +133,11 @@ if "portfolio" not in st.session_state:
 with st.form("stock_form", clear_on_submit=False):
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        ticker_input = st.text_input("中文名稱或代號", value="台積電")
+        ticker_input = st.text_input("輸入名稱或代號 (例: 旺宏(2337))", value="旺宏(2337)")
     with col2:
         shares_input = st.number_input("買入股數", min_value=1, value=1000)
     with col3:
-        cost_input = st.number_input("買入均價", min_value=0.0, value=600.0)
+        cost_input = st.number_input("買入均價", min_value=0.0, value=25.0)
     with col4:
         tp_input = st.number_input("停利目標價 (0表自動)", min_value=0.0, value=0.0)
     with col5:
@@ -178,7 +163,7 @@ with st.form("stock_form", clear_on_submit=False):
         ).reset_index(drop=True)
         st.success(f"已成功載入部位：{display_name}！")
 
-# 顯示目前持股總覽
+# 顯示持股總覽與儀表板
 if not st.session_state.portfolio.empty:
     st.markdown("---")
     st.subheader("📊 盤勢監控與智慧買賣點儀表板")
@@ -193,7 +178,6 @@ if not st.session_state.portfolio.empty:
     final_tps = []
     final_sls = []
     recommendations = []
-    indicators_info = []
     alerts = []
 
     for index, row in portfolio_df.iterrows():
@@ -291,7 +275,6 @@ if not st.session_state.portfolio.empty:
         final_tps.append(suggested_tp)
         final_sls.append(suggested_sl)
         recommendations.append(rec_msg)
-        indicators_info.append(f"RSI:{rsi:.1f} | MA60:{ma60:.1f}")
         alerts.append(alert_msg)
 
     portfolio_df["標的名稱"] = portfolio_df["中文名稱"]
@@ -307,7 +290,7 @@ if not st.session_state.portfolio.empty:
     portfolio_df["多指標綜合建議"] = recommendations
     portfolio_df["狀態"] = alerts
 
-    # --- 分頁籤呈現：台股與美股分開 ---
+    # 分頁呈現
     tab_tw, tab_us = st.tabs(["🇹🇼 台股監控儀表板", "🇺🇸 美股/其他監控儀表板"])
 
     with tab_tw:
@@ -319,7 +302,6 @@ if not st.session_state.portfolio.empty:
             tw_profit = tw_value - tw_cost
             tw_profit_pct = (tw_profit / tw_cost) * 100 if tw_cost > 0 else 0
             
-            # 科技感儀表板卡片
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.markdown(f'<div class="metric-card"><div class="metric-title">台股總投資成本</div><div class="metric-value">${tw_cost:,.2f}</div></div>', unsafe_allow_html=True)
@@ -351,7 +333,7 @@ if not st.session_state.portfolio.empty:
         else:
             st.info("目前尚無美股/其他持股紀錄。")
 
-    # 全體總結儀表板
+    # 全體總結
     st.markdown("---")
     sum_cost = portfolio_df["總成本"].sum()
     sum_value = portfolio_df["市值"].sum()
