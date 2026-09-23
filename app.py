@@ -35,7 +35,7 @@ st.markdown("""
     }
     .metric-value {
         color: #f3f4f6;
-        font-size: 26px;
+        font-size: 24px;
         font-weight: 700;
         margin-top: 5px;
     }
@@ -57,7 +57,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ QUANT PORTFOLIO | 智慧持股健檢儀表板")
-st.markdown("支援直接輸入 **`旺宏(2337)`**、**`2337`** 或美股代號（如 `AAPL`），系統將自動解析並提供中文名稱與多指標分析！")
+st.markdown("🔒 **多用戶獨立隔離**：各自開啟網頁操作，資料互不干擾。支援中文名稱輸入與多指標智慧健檢！")
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
@@ -93,24 +93,20 @@ def calculate_bollinger_bands(series, window=20, num_std=2):
     except Exception:
         return series, series, series
 
-# 智慧解析輸入（完美支援 旺宏(2337)、2337、AAPL）
+# 智慧解析輸入
 def resolve_ticker(user_input):
-    clean_input = user_input.strip()
-    
-    # 利用正規表達式抓出輸入中的數字（例如從 "旺宏(2337)" 中抓出 "2337"）
+    clean_input = str(user_input).strip()
     digits = re.findall(r'\d+', clean_input)
     
     if digits:
-        code = digits[0] # 取出第一個數字組合當作台股代號
+        code = digits[0]
         ticker = code + ".TW"
-        # 透過 twstock 取得精準繁體中文名稱
         if code in twstock.codes:
             name = twstock.codes[code].name
         else:
             name = clean_input
         market = "台股"
     else:
-        # 如果沒有數字，視為美股或其他英文代號
         ticker = clean_input.upper()
         try:
             stock = yf.Ticker(ticker)
@@ -122,51 +118,63 @@ def resolve_ticker(user_input):
         
     return ticker, name, market
 
-# --- 主畫面：控制面板 ---
-st.subheader("📝 新增 / 更新持股部位")
-
+# --- 初始化 Session State (確保各自獨立) ---
 if "portfolio" not in st.session_state:
     st.session_state.portfolio = pd.DataFrame(
         columns=["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"]
     )
 
-with st.form("stock_form", clear_on_submit=False):
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        ticker_input = st.text_input("輸入名稱或代號 (例: 旺宏(2337))", value="旺宏(2337)")
-    with col2:
-        shares_input = st.number_input("買入股數", min_value=1, value=1000)
-    with col3:
-        cost_input = st.number_input("買入均價", min_value=0.0, value=25.0)
-    with col4:
+# --- 新增持股區塊 ---
+st.subheader("📝 新增持股部位")
+with st.form("add_form", clear_on_submit=True):
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        t_input = st.text_input("名稱或代號 (例: 旺宏 或 2337)", value="")
+    with c2:
+        s_input = st.number_input("買入股數", min_value=1, value=1000)
+    with c3:
+        c_input = st.number_input("買入均價", min_value=0.0, value=25.0)
+    with c4:
         tp_input = st.number_input("停利目標價 (0表自動)", min_value=0.0, value=0.0)
-    with col5:
+    with c5:
         sl_input = st.number_input("停損目標價 (0表自動)", min_value=0.0, value=0.0)
     
-    submitted = st.form_submit_button("⚡ 執行加入 / 更新部位")
-    if submitted:
-        ticker, stock_name, market = resolve_ticker(ticker_input)
-        display_name = f"{ticker.split('.')[0]} {stock_name}"
-        
-        new_data = pd.DataFrame({
+    add_btn = st.form_submit_button("➕ 加入清單")
+    if add_btn and t_input:
+        ticker, stock_name, market = resolve_ticker(t_input)
+        new_row = pd.DataFrame({
             "股票代號": [ticker],
-            "中文名稱": [display_name],
+            "中文名稱": [stock_name],
             "市場": [market],
-            "買入股數": [shares_input],
-            "買入均價": [cost_input],
+            "買入股數": [s_input],
+            "買入均價": [c_input],
             "停利目標價": [tp_input],
             "停損目標價": [sl_input]
         })
-        
         st.session_state.portfolio = pd.concat(
-            [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_data]
+            [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_row]
         ).reset_index(drop=True)
-        st.success(f"已成功載入部位：{display_name}！")
+        st.success(f"成功新增：{ticker} {stock_name}")
 
-# 顯示持股總覽與儀表板
+# --- 持股管理與刪除（互動式編輯器） ---
 if not st.session_state.portfolio.empty:
     st.markdown("---")
-    st.subheader("📊 盤勢監控與智慧買賣點儀表板")
+    st.subheader("🛠️ 現有持股管理（可直接修改或勾選刪除列）")
+    st.markdown("💡 *提示：點選表格左側可勾選刪除，或直接修改股數與成本。修改後請點選下方按鈕儲存。*")
+    
+    # 使用 st.data_editor 讓使用者自由刪除與修改
+    edited_portfolio = st.data_editor(
+        st.session_state.portfolio,
+        num_rows="dynamic",
+        use_container_width=True,
+        key="portfolio_editor"
+    )
+    st.session_state.portfolio = edited_portfolio
+
+# --- 盤勢健檢與儀表板計算 ---
+if not st.session_state.portfolio.empty:
+    st.markdown("---")
+    st.subheader("📊 多指標智慧買賣點戰情室")
     
     portfolio_df = st.session_state.portfolio.copy()
     
@@ -191,7 +199,7 @@ if not st.session_state.portfolio.empty:
         ma20, ma60, rsi, m_val, s_val, u_val, l_val = cost, cost, 50, 0, 0, cost, cost
         
         try:
-            stock = yf.Ticker(ticker)
+            stock = yf.Ticker(str(ticker))
             hist = stock.history(period="6mo")
             
             if not hist.empty and len(hist) > 10:
@@ -251,9 +259,9 @@ if not st.session_state.portfolio.empty:
             score -= 2
 
         if score >= 3:
-            rec_msg = f"🟢 【強力買點】支撐區約 {l_val:.1f}~{ma60:.1f} 逢低佈局"
+            rec_msg = f"🟢 【強力買點】支撐區約 {l_val:.1f}~{ma60:.1f}"
         elif score >= 1:
-            rec_msg = f"🟡 【逢低關注】回測月線({ma20:.1f})支撐"
+            rec_msg = f"🟡 【逢低關注】回測月線({ma20:.1f})"
         elif score <= -3:
             rec_msg = f"🔴 【強力賣點】接近上軌({u_val:.1f})建議停利"
         elif score <= -1:
@@ -261,11 +269,11 @@ if not st.session_state.portfolio.empty:
         else:
             rec_msg = f"⚪ 【震盪觀望】多空交錯區間操作"
 
-        alert_msg = "正常監控中"
+        alert_msg = "正常監控"
         if current_price >= suggested_tp:
             alert_msg = "🎯 達停利目標！"
         elif current_price <= suggested_sl:
-            alert_msg = "⚠️ 觸停損警戒！"
+            alert_msg = "⚠️ 停損警戒！"
 
         current_prices.append(round(current_price, 2))
         total_market_values.append(round(market_value, 2))
@@ -331,7 +339,7 @@ if not st.session_state.portfolio.empty:
                 color_style = "color: #34d399;" if us_profit >= 0 else "color: #f87171;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.2f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
-            st.info("目前尚無美股/其他持股紀錄。")
+            st.info("print('目前尚無美股/其他持股紀錄。')")
 
     # 全體總結
     st.markdown("---")
