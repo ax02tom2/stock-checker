@@ -3,7 +3,8 @@ import pandas as pd
 import yfinance as yf
 import re
 import twstock
-from streamlit_cookies_controller import CookieController
+import sqlite3
+import uuid
 
 # 設定網頁寬度與標題
 st.set_page_config(
@@ -12,8 +13,58 @@ st.set_page_config(
     layout="wide"
 )
 
-# 初始化 Cookie 控制器
-controller = CookieController()
+# --- 隱形 UID 與 SQLite 資料庫初始化 ---
+def init_db():
+    conn = sqlite3.connect('portfolio_v2.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS user_portfolios (
+            uid TEXT,
+            ticker TEXT,
+            chinese_name TEXT,
+            market TEXT,
+            shares REAL,
+            cost REAL,
+            tp REAL,
+            sl REAL,
+            PRIMARY KEY (uid, ticker)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# 確保每個瀏覽器連線都有專屬且持久的 UID (透過網址參數保留，F5 重新整理也不會丟失)
+query_params = st.query_params
+if "uid" not in query_params or not query_params["uid"]:
+    new_uid = str(uuid.uuid4())[:8] # 產生 8 碼短 UID
+    st.query_params["uid"] = new_uid
+    user_uid = new_uid
+else:
+    user_uid = query_params["uid"]
+
+def load_portfolio(uid):
+    conn = sqlite3.connect('portfolio_v2.db', check_same_thread=False)
+    df = pd.read_sql('''
+        SELECT ticker as "股票代號", chinese_name as "中文名稱", market as "市場", 
+               shares as "買入股數", cost as "買入均價", tp as "停利目標價", sl as "停損目標價" 
+        FROM user_portfolios WHERE uid = ?
+    ''', conn, params=(uid,))
+    conn.close()
+    return df
+
+def save_portfolio(uid, df):
+    conn = sqlite3.connect('portfolio_v2.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('DELETE FROM user_portfolios WHERE uid = ?', (uid,))
+    for _, row in df.iterrows():
+        c.execute('''
+            INSERT OR REPLACE INTO user_portfolios (uid, ticker, chinese_name, market, shares, cost, tp, sl)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (uid, row["股票代號"], row["中文名稱"], row["市場"], row["買入股數"], row["買入均價"], row["停利目標價"], row["停損目標價"]))
+    conn.commit()
+    conn.close()
 
 # 注入科技感暗色系與儀表板專用 CSS
 st.markdown("""
@@ -37,7 +88,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ 智慧持股健檢儀表板")
-st.markdown("🔒 **Cookie 安全持久化**：資料直接寫入瀏覽器 Cookie，重新整理絕不遺失，且各裝置資料完全獨立！")
+st.markdown("🔒 **自動雲端同步**：免登入、免密碼！直接按 `F5` 重新整理資料也會自動保留，各裝置資料完全獨立不干擾。")
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
@@ -96,22 +147,8 @@ def resolve_and_verify_ticker(user_input):
             
     return ticker, name, market
 
-# --- 從 Cookie 載入資料 ---
-if "portfolio" not in st.session_state:
-    saved_cookie = controller.get("quant_portfolio")
-    if saved_cookie:
-        try:
-            # 嘗試從 Cookie 解碼 DataFrame
-            import io
-            st.session_state.portfolio = pd.read_json(io.StringIO(saved_cookie), orient="split")
-        except:
-            st.session_state.portfolio = pd.DataFrame(columns=["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"])
-    else:
-        st.session_state.portfolio = pd.DataFrame(columns=["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"])
-
-def save_to_cookie():
-    json_str = st.session_state.portfolio.to_json(orient="split", force_ascii=False)
-    controller.set("quant_portfolio", json_str)
+# 載入當前使用者的持股
+current_portfolio = load_portfolio(user_uid)
 
 # --- 新增持股區塊 ---
 st.subheader("📝 新增持股部位")
@@ -139,36 +176,36 @@ with st.form("add_form", clear_on_submit=True):
                 "停利目標價": [tp_input],
                 "停損目標價": [sl_input]
             })
-            st.session_state.portfolio = pd.concat(
-                [st.session_state.portfolio[st.session_state.portfolio["股票代號"] != ticker], new_row]
-            ).reset_index(drop=True)
-            save_to_cookie()
+            if not current_portfolio.empty:
+                updated_df = pd.concat([current_portfolio[current_portfolio["股票代號"] != ticker], new_row]).reset_index(drop=True)
+            else:
+                updated_df = new_row
+            save_portfolio(user_uid, updated_df)
             st.success(f"成功新增：{ticker} {stock_name}")
             st.rerun()
 
 # --- 持股管理與刪除 ---
-if not st.session_state.portfolio.empty:
+if not current_portfolio.empty:
     st.markdown("---")
     st.subheader("🛠️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
     
     edited_portfolio = st.data_editor(
-        st.session_state.portfolio,
+        current_portfolio,
         num_rows="dynamic",
         use_container_width=True,
         key="portfolio_editor"
     )
     
     if st.button("💾 儲存表格變更"):
-        st.session_state.portfolio = edited_portfolio
-        save_to_cookie()
-        st.success("變更已永久儲存至瀏覽器！")
+        save_portfolio(user_uid, edited_portfolio)
+        st.success("變更已成功同步至資料庫！")
         st.rerun()
 
     # --- 盤勢健檢與儀表板計算 ---
     st.markdown("---")
     st.subheader("📊 多指標智慧買賣點戰情室")
     
-    portfolio_df = st.session_state.portfolio.copy()
+    portfolio_df = edited_portfolio.copy()
     current_prices, total_market_values, total_costs, profits, profit_pcts, final_tps, final_sls, recommendations, alerts = [], [], [], [], [], [], [], [], []
 
     for index, row in portfolio_df.iterrows():
@@ -282,4 +319,4 @@ if not st.session_state.portfolio.empty:
                 color_style = "color: #34d399;" if us_profit >= 0 else "color: #f87171;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.2f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
-            st.info("print('目前尚無美股/其他持股紀錄。')")
+            st.info("目前尚無美股/其他持股紀錄。")
