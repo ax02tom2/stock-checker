@@ -154,7 +154,7 @@ st.subheader("📝 新增持股部位")
 with st.form("add_form", clear_on_submit=True):
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: t_input = st.text_input("名稱或代號 (例: 旺宏 或 2337)", value="")
-    with c2: s_input = st.number_input("買入股數", min_value=1, value=1000, format="%d")
+    with c2: s_input = st.number_input("買入股數", min_value=1, value=1000, step=1000)
     with c3: c_input = st.number_input("買入均價", min_value=0.0, value=25.0)
     with c4: tp_input = st.number_input("停利目標價 (0表自動)", min_value=0.0, value=0.0)
     with c5: sl_input = st.number_input("停損目標價 (0表自動)", min_value=0.0, value=0.0)
@@ -188,22 +188,31 @@ if not current_portfolio.empty:
     st.markdown("---")
     st.subheader("🛠️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
     
-    # 針對編輯器加入安全的數值千分位格式設定
-    edited_portfolio = st.data_editor(
-        current_portfolio,
+    # 為了百分之百保證千分位顯示，強制將呈現給編輯器的資料轉成「帶逗號的字串」
+    display_portfolio = current_portfolio.copy()
+    for col in ["買入股數", "買入均價", "停利目標價", "停損目標價"]:
+        display_portfolio[col] = pd.to_numeric(display_portfolio[col], errors='coerce').fillna(0)
+    
+    display_portfolio["買入股數"] = display_portfolio["買入股數"].apply(lambda x: f"{int(x):,}")
+    display_portfolio["買入均價"] = display_portfolio["買入均價"].apply(lambda x: f"{float(x):,.2f}")
+    display_portfolio["停利目標價"] = display_portfolio["停利目標價"].apply(lambda x: f"{float(x):,.2f}")
+    display_portfolio["停損目標價"] = display_portfolio["停損目標價"].apply(lambda x: f"{float(x):,.2f}")
+    
+    edited_display = st.data_editor(
+        display_portfolio,
         num_rows="dynamic",
         use_container_width=True,
-        key="portfolio_editor",
-        column_config={
-            "買入股數": st.column_config.NumberColumn("買入股數", format="%d"),
-            "買入均價": st.column_config.NumberColumn("買入均價", format="%.2f"),
-            "停利目標價": st.column_config.NumberColumn("停利目標價", format="%.2f"),
-            "停損目標價": st.column_config.NumberColumn("停損目標價", format="%.2f"),
-        }
+        key="portfolio_editor"
     )
     
+    # 在背景將你編輯後的字串（包含可能輸入的逗號）清理還原成純數字
+    working_portfolio = edited_display.copy()
+    for col in ["買入股數", "買入均價", "停利目標價", "停損目標價"]:
+        working_portfolio[col] = working_portfolio[col].astype(str).str.replace(',', '', regex=False)
+        working_portfolio[col] = pd.to_numeric(working_portfolio[col], errors='coerce').fillna(0)
+    
     if st.button("💾 儲存表格變更"):
-        save_portfolio(user_uid, edited_portfolio)
+        save_portfolio(user_uid, working_portfolio)
         st.success("變更已成功同步至資料庫！")
         st.rerun()
 
@@ -211,7 +220,7 @@ if not current_portfolio.empty:
     st.markdown("---")
     st.subheader("📊 多指標智慧買賣點戰情室")
     
-    portfolio_df = edited_portfolio.copy()
+    portfolio_df = working_portfolio.copy()
     current_prices, total_market_values, total_costs, profits, profit_pcts, final_tps, final_sls, recommendations, alerts = [], [], [], [], [], [], [], [], []
 
     for index, row in portfolio_df.iterrows():
@@ -289,31 +298,39 @@ if not current_portfolio.empty:
     portfolio_df["標的名稱"] = portfolio_df["中文名稱"]
     portfolio_df = portfolio_df.drop(columns=["股票代號", "中文名稱"])
     
-    # 建立戰情室顯示用的千分位格式 DataFrame
+    portfolio_df["現價"] = current_prices
+    portfolio_df["市值"] = total_market_values
+    portfolio_df["總成本"] = total_costs
+    portfolio_df["未實現損益"] = profits
+    portfolio_df["報酬率 (%)"] = profit_pcts
+    portfolio_df["建議停利價"] = final_tps
+    portfolio_df["建議停損價"] = final_sls
+    portfolio_df["多指標綜合建議"] = recommendations
+    portfolio_df["狀態"] = alerts
+
+    # 同樣放棄 Streamlit 不穩定的 column_config，直接強制轉成千分位字串輸出！
     display_df = portfolio_df.copy()
     display_df["買入股數"] = display_df["買入股數"].apply(lambda x: f"{int(x):,}")
     display_df["買入均價"] = display_df["買入均價"].apply(lambda x: f"{x:,.2f}")
-    display_df["現價"] = [f"{x:,.2f}" for x in current_prices]
-    display_df["市值"] = [f"{x:,.2f}" for x in total_market_values]
-    display_df["總成本"] = [f"{x:,.2f}" for x in total_costs]
-    display_df["未實現損益"] = [f"{x:,.2f}" for x in profits]
-    display_df["報酬率 (%)"] = [f"{x:,.2f}%" for x in profit_pcts]
-    display_df["建議停利價"] = [f"{x:,.2f}" for x in final_tps]
-    display_df["建議停損價"] = [f"{x:,.2f}" for x in final_sls]
-    display_df["多指標綜合建議"] = recommendations
-    display_df["狀態"] = alerts
+    display_df["現價"] = display_df["現價"].apply(lambda x: f"{x:,.2f}")
+    display_df["市值"] = display_df["市值"].apply(lambda x: f"{x:,.2f}")
+    display_df["總成本"] = display_df["總成本"].apply(lambda x: f"{x:,.2f}")
+    display_df["未實現損益"] = display_df["未實現損益"].apply(lambda x: f"{x:,.2f}")
+    display_df["報酬率 (%)"] = display_df["報酬率 (%)"].apply(lambda x: f"{x:,.2f}%")
+    display_df["建議停利價"] = display_df["建議停利價"].apply(lambda x: f"{x:,.2f}")
+    display_df["建議停損價"] = display_df["建議停損價"].apply(lambda x: f"{x:,.2f}")
 
     # 分頁呈現
     tab_tw, tab_us = st.tabs(["🇹🇼 台股監控儀表板", "🇺🇸 美股/其他監控儀表板"])
 
     with tab_tw:
-        tw_indices = portfolio_df[portfolio_df["市場"] == "台股"].index
-        if len(tw_indices) > 0:
-            tw_display_df = display_df.loc[tw_indices].drop(columns=["市場"])
+        tw_mask = portfolio_df["市場"] == "台股"
+        if tw_mask.any():
+            tw_display_df = display_df[tw_mask].drop(columns=["市場"])
             st.dataframe(tw_display_df, use_container_width=True)
             
-            tw_cost = sum([total_costs[i] for i in tw_indices])
-            tw_value = sum([total_market_values[i] for i in tw_indices])
+            tw_cost = portfolio_df.loc[tw_mask, "總成本"].sum()
+            tw_value = portfolio_df.loc[tw_mask, "市值"].sum()
             tw_profit = tw_value - tw_cost
             tw_profit_pct = (tw_profit / tw_cost) * 100 if tw_cost > 0 else 0
             
@@ -321,19 +338,20 @@ if not current_portfolio.empty:
             with c1: st.markdown(f'<div class="metric-card"><div class="metric-title">台股總投資成本</div><div class="metric-value">${tw_cost:,.2f}</div></div>', unsafe_allow_html=True)
             with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">台股目前總市值</div><div class="metric-value">${tw_value:,.2f}</div></div>', unsafe_allow_html=True)
             with c3: 
+                # 台股習慣：賺錢(正)顯示紅色，賠錢(負)顯示綠色
                 color_style = "color: #f87171;" if tw_profit >= 0 else "color: #34d399;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">台股總未實現損益</div><div class="metric-value" style="{color_style}">${tw_profit:,.2f} ({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
             st.info("目前尚無台股持股紀錄。")
 
     with tab_us:
-        us_indices = portfolio_df[portfolio_df["市場"] == "美股/其他"].index
-        if len(us_indices) > 0:
-            us_display_df = display_df.loc[us_indices].drop(columns=["市場"])
+        us_mask = portfolio_df["市場"] == "美股/其他"
+        if us_mask.any():
+            us_display_df = display_df[us_mask].drop(columns=["市場"])
             st.dataframe(us_display_df, use_container_width=True)
             
-            us_cost = sum([total_costs[i] for i in us_indices])
-            us_value = sum([total_market_values[i] for i in us_indices])
+            us_cost = portfolio_df.loc[us_mask, "總成本"].sum()
+            us_value = portfolio_df.loc[us_mask, "市值"].sum()
             us_profit = us_value - us_cost
             us_profit_pct = (us_profit / us_cost) * 100 if us_cost > 0 else 0
             
@@ -341,6 +359,7 @@ if not current_portfolio.empty:
             with u1: st.markdown(f'<div class="metric-card"><div class="metric-title">美股總投資成本</div><div class="metric-value">${us_cost:,.2f}</div></div>', unsafe_allow_html=True)
             with u2: st.markdown(f'<div class="metric-card"><div class="metric-title">美股目前總市值</div><div class="metric-value">${us_value:,.2f}</div></div>', unsafe_allow_html=True)
             with u3: 
+                # 賺錢(正)顯示紅色，賠錢(負)顯示綠色
                 color_style = "color: #f87171;" if us_profit >= 0 else "color: #34d399;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.2f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
         else:
