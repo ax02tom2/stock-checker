@@ -66,7 +66,7 @@ def save_portfolio(uid, df):
     conn.commit()
     conn.close()
 
-# 注入科技感暗色系與台股紅綠習慣 CSS (紅賺綠賠)
+# 注入科技感暗色系與台股紅綠習慣 CSS
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
@@ -188,7 +188,6 @@ if not current_portfolio.empty:
     st.markdown("---")
     st.subheader("🛠️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
     
-    # 為了百分之百保證千分位顯示，強制將呈現給編輯器的資料轉成「帶逗號的字串」
     display_portfolio = current_portfolio.copy()
     for col in ["買入股數", "買入均價", "停利目標價", "停損目標價"]:
         display_portfolio[col] = pd.to_numeric(display_portfolio[col], errors='coerce').fillna(0)
@@ -205,7 +204,6 @@ if not current_portfolio.empty:
         key="portfolio_editor"
     )
     
-    # 在背景將你編輯後的字串（包含可能輸入的逗號）清理還原成純數字
     working_portfolio = edited_display.copy()
     for col in ["買入股數", "買入均價", "停利目標價", "停損目標價"]:
         working_portfolio[col] = working_portfolio[col].astype(str).str.replace(',', '', regex=False)
@@ -218,10 +216,14 @@ if not current_portfolio.empty:
 
     # --- 盤勢健檢與儀表板計算 ---
     st.markdown("---")
-    st.subheader("📊 多指標智慧買賣點戰情室")
+    st.subheader("📊 多指標智慧買賣點戰情室 (含股利與紀念品)")
     
     portfolio_df = working_portfolio.copy()
-    current_prices, total_market_values, total_costs, profits, profit_pcts, final_tps, final_sls, recommendations, alerts = [], [], [], [], [], [], [], [], []
+    current_prices, total_market_values, total_costs, profits, profit_pcts = [], [], [], [], []
+    final_tps, final_sls, recommendations, alerts = [], [], [], []
+    
+    # 新增：股利與紀念品專用 List
+    recent_divs, total_divs, div_dates, souvenir_urls = [], [], [], []
 
     for index, row in portfolio_df.iterrows():
         ticker = row["股票代號"]
@@ -229,9 +231,12 @@ if not current_portfolio.empty:
         cost = float(row["買入均價"])
         user_tp = float(row["停利目標價"])
         user_sl = float(row["停損目標價"])
+        market = row["市場"]
         
         current_price = cost
         ma20, ma60, rsi, m_val, s_val, u_val, l_val = cost, cost, 50, 0, 0, cost, cost
+        last_div = 0.0
+        last_div_date = "-"
         
         try:
             stock = yf.Ticker(str(ticker))
@@ -246,10 +251,26 @@ if not current_portfolio.empty:
                 m_val, s_val = float(macd_s.iloc[-1]), float(signal_s.iloc[-1])
                 upper_bb, _, lower_bb = calculate_bollinger_bands(close)
                 u_val, l_val = float(upper_bb.iloc[-1]), float(lower_bb.iloc[-1])
+            
+            # 取得最新除權息資料
+            div_data = stock.dividends
+            if not div_data.empty:
+                last_div = float(div_data.iloc[-1])
+                last_div_date = div_data.index[-1].strftime("%Y-%m-%d")
         except:
             pass
             
-        # --- 以「現價」為基準動態計算停利停損 ---
+        # 計算預估股息
+        est_total_div = last_div * shares
+
+        # 產生股東會/紀念品即時查詢連結
+        if market == "台股":
+            stock_code = str(ticker).replace(".TW", "")
+            s_url = f"https://histock.tw/stock/{stock_code}/%E8%82%A1%E6%9D%B1%E6%9C%83"
+        else:
+            s_url = f"https://finance.yahoo.com/quote/{ticker}/key-statistics"
+
+        # 停利停損
         if user_tp > 0:
             suggested_tp = user_tp
         else:
@@ -275,15 +296,15 @@ if not current_portfolio.empty:
         if current_price <= l_val * 1.01: score += 2
         elif current_price >= u_val * 0.99: score -= 2
 
-        if score >= 3: rec_msg = f"🟢 【強力買點】支撐區約 {l_val:.1f}~{ma60:.1f}"
+        if score >= 3: rec_msg = f"🟢 【強力買點】支撐約 {l_val:.1f}~{ma60:.1f}"
         elif score >= 1: rec_msg = f"🟡 【逢低關注】回測月線({ma20:.1f})"
         elif score <= -3: rec_msg = f"🔴 【強力賣點】接近上軌({u_val:.1f})"
         elif score <= -1: rec_msg = f"🟠 【偏弱注意】短線動能轉弱"
         else: rec_msg = f"⚪ 【震盪觀望】多空交錯區間操作"
 
         alert_msg = "正常監控"
-        if current_price >= suggested_tp: alert_msg = "🎯 達停利目標！"
-        elif current_price <= suggested_sl: alert_msg = "⚠️ 停損警戒！"
+        if current_price >= suggested_tp: alert_msg = "🎯 達停利目標"
+        elif current_price <= suggested_sl: alert_msg = "⚠️ 停損警戒"
 
         current_prices.append(round(current_price, 2))
         total_market_values.append(round(market_value, 2))
@@ -294,6 +315,10 @@ if not current_portfolio.empty:
         final_sls.append(suggested_sl)
         recommendations.append(rec_msg)
         alerts.append(alert_msg)
+        recent_divs.append(last_div)
+        total_divs.append(est_total_div)
+        div_dates.append(last_div_date)
+        souvenir_urls.append(s_url)
 
     portfolio_df["標的名稱"] = portfolio_df["中文名稱"]
     portfolio_df = portfolio_df.drop(columns=["股票代號", "中文名稱"])
@@ -305,10 +330,14 @@ if not current_portfolio.empty:
     portfolio_df["報酬率 (%)"] = profit_pcts
     portfolio_df["建議停利價"] = final_tps
     portfolio_df["建議停損價"] = final_sls
-    portfolio_df["多指標綜合建議"] = recommendations
+    portfolio_df["每股最近股利"] = recent_divs
+    portfolio_df["預估領取總股息"] = total_divs
+    portfolio_df["最近除息日"] = div_dates
+    portfolio_df["股東會與紀念品"] = souvenir_urls
     portfolio_df["狀態"] = alerts
+    portfolio_df["綜合建議"] = recommendations
 
-    # 同樣放棄 Streamlit 不穩定的 column_config，直接強制轉成千分位字串輸出！
+    # 建立戰情室顯示用的千分位格式 DataFrame
     display_df = portfolio_df.copy()
     display_df["買入股數"] = display_df["買入股數"].apply(lambda x: f"{int(x):,}")
     display_df["買入均價"] = display_df["買入均價"].apply(lambda x: f"{x:,.2f}")
@@ -319,6 +348,13 @@ if not current_portfolio.empty:
     display_df["報酬率 (%)"] = display_df["報酬率 (%)"].apply(lambda x: f"{x:,.2f}%")
     display_df["建議停利價"] = display_df["建議停利價"].apply(lambda x: f"{x:,.2f}")
     display_df["建議停損價"] = display_df["建議停損價"].apply(lambda x: f"{x:,.2f}")
+    display_df["每股最近股利"] = display_df["每股最近股利"].apply(lambda x: f"{x:,.2f}")
+    display_df["預估領取總股息"] = display_df["預估領取總股息"].apply(lambda x: f"{x:,.2f}")
+
+    # 定義表格特殊欄位渲染 (加入超連結樣式)
+    column_config_dict = {
+        "股東會與紀念品": st.column_config.LinkColumn("股東會與紀念品", display_text="🔗 點擊查詢即時資訊")
+    }
 
     # 分頁呈現
     tab_tw, tab_us = st.tabs(["🇹🇼 台股監控儀表板", "🇺🇸 美股/其他監控儀表板"])
@@ -327,20 +363,21 @@ if not current_portfolio.empty:
         tw_mask = portfolio_df["市場"] == "台股"
         if tw_mask.any():
             tw_display_df = display_df[tw_mask].drop(columns=["市場"])
-            st.dataframe(tw_display_df, use_container_width=True)
+            st.dataframe(tw_display_df, use_container_width=True, column_config=column_config_dict)
             
             tw_cost = portfolio_df.loc[tw_mask, "總成本"].sum()
             tw_value = portfolio_df.loc[tw_mask, "市值"].sum()
             tw_profit = tw_value - tw_cost
             tw_profit_pct = (tw_profit / tw_cost) * 100 if tw_cost > 0 else 0
+            tw_div_sum = portfolio_df.loc[tw_mask, "預估領取總股息"].sum()
             
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             with c1: st.markdown(f'<div class="metric-card"><div class="metric-title">台股總投資成本</div><div class="metric-value">${tw_cost:,.2f}</div></div>', unsafe_allow_html=True)
             with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">台股目前總市值</div><div class="metric-value">${tw_value:,.2f}</div></div>', unsafe_allow_html=True)
             with c3: 
-                # 台股習慣：賺錢(正)顯示紅色，賠錢(負)顯示綠色
                 color_style = "color: #f87171;" if tw_profit >= 0 else "color: #34d399;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">台股總未實現損益</div><div class="metric-value" style="{color_style}">${tw_profit:,.2f} ({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
+            with c4: st.markdown(f'<div class="metric-card"><div class="metric-title">總預估可領股息</div><div class="metric-value" style="color: #60a5fa;">${tw_div_sum:,.2f}</div></div>', unsafe_allow_html=True)
         else:
             st.info("目前尚無台股持股紀錄。")
 
@@ -348,19 +385,20 @@ if not current_portfolio.empty:
         us_mask = portfolio_df["市場"] == "美股/其他"
         if us_mask.any():
             us_display_df = display_df[us_mask].drop(columns=["市場"])
-            st.dataframe(us_display_df, use_container_width=True)
+            st.dataframe(us_display_df, use_container_width=True, column_config=column_config_dict)
             
             us_cost = portfolio_df.loc[us_mask, "總成本"].sum()
             us_value = portfolio_df.loc[us_mask, "市值"].sum()
             us_profit = us_value - us_cost
             us_profit_pct = (us_profit / us_cost) * 100 if us_cost > 0 else 0
+            us_div_sum = portfolio_df.loc[us_mask, "預估領取總股息"].sum()
             
-            u1, u2, u3 = st.columns(3)
+            u1, u2, u3, u4 = st.columns(4)
             with u1: st.markdown(f'<div class="metric-card"><div class="metric-title">美股總投資成本</div><div class="metric-value">${us_cost:,.2f}</div></div>', unsafe_allow_html=True)
             with u2: st.markdown(f'<div class="metric-card"><div class="metric-title">美股目前總市值</div><div class="metric-value">${us_value:,.2f}</div></div>', unsafe_allow_html=True)
             with u3: 
-                # 賺錢(正)顯示紅色，賠錢(負)顯示綠色
                 color_style = "color: #f87171;" if us_profit >= 0 else "color: #34d399;"
                 st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.2f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
+            with u4: st.markdown(f'<div class="metric-card"><div class="metric-title">總預估可領股息</div><div class="metric-value" style="color: #60a5fa;">${us_div_sum:,.2f}</div></div>', unsafe_allow_html=True)
         else:
             st.info("目前尚無美股/其他持股紀錄。")
