@@ -79,24 +79,56 @@ def save_portfolio(uid, df):
     conn.commit()
     conn.close()
 
-# 注入科技感暗色系與台股紅綠習慣 CSS
+# 🚀 注入操盤室專業 CSS (毛玻璃卡片 + 股市網格背景)
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; }
+    /* 全局背景：深色科技感 + 股市網格與紅綠光暈 */
+    .stApp {
+        background-color: #080b12;
+        background-image: 
+            radial-gradient(circle at 15% 50%, rgba(239, 68, 68, 0.05), transparent 25%),
+            radial-gradient(circle at 85% 30%, rgba(34, 197, 94, 0.05), transparent 25%),
+            linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+        background-size: 100% 100%, 100% 100%, 30px 30px, 30px 30px;
+        background-attachment: fixed;
+    }
+    /* 讓主體背景透明，呈現出底部的網格 */
+    .main { background: transparent; }
+    
+    /* 戰情室卡片毛玻璃效果 (Glassmorphism) */
     .metric-card {
-        background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
-        border: 1px solid #374151;
+        background: linear-gradient(135deg, rgba(31, 41, 55, 0.75) 0%, rgba(17, 24, 39, 0.9) 100%);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        border-radius: 16px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
         text-align: center;
         margin-bottom: 15px;
+        transition: transform 0.2s ease;
     }
+    .metric-card:hover { transform: translateY(-3px); }
     .metric-title { color: #9ca3af; font-size: 14px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
-    .metric-value { color: #f3f4f6; font-size: 24px; font-weight: 700; margin-top: 5px; }
+    .metric-value { color: #f3f4f6; font-size: 26px; font-weight: 700; margin-top: 5px; text-shadow: 1px 1px 3px rgba(0,0,0,0.4); }
+    
+    /* 分頁籤樣式優化 */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { background-color: #1f2937; border-radius: 8px 8px 0px 0px; color: #d1d5db; padding: 10px 20px; font-weight: 600; }
-    .stTabs [aria-selected="true"] { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important; color: white !important; }
+    .stTabs [data-baseweb="tab"] { 
+        background-color: rgba(31, 41, 55, 0.6); 
+        border-radius: 8px 8px 0px 0px; 
+        color: #d1d5db; 
+        padding: 10px 20px; 
+        font-weight: 600; 
+        border: 1px solid rgba(255, 255, 255, 0.05); 
+        border-bottom: none; 
+    }
+    .stTabs [aria-selected="true"] { 
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(29, 78, 216, 0.9) 100%) !important; 
+        color: white !important; 
+        box-shadow: 0 -4px 12px rgba(59, 130, 246, 0.3);
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -199,7 +231,7 @@ with st.form("add_form", clear_on_submit=True):
 # --- 持股管理與刪除 ---
 if not current_portfolio.empty:
     st.markdown("---")
-    st.subheader("🛠️️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
+    st.subheader("🛠️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
     
     display_portfolio = current_portfolio.copy()
     for col in ["買入股數", "買入均價", "停利目標價", "停損目標價"]:
@@ -229,7 +261,7 @@ if not current_portfolio.empty:
 
     # --- 盤勢健檢與儀表板計算 ---
     st.markdown("---")
-    st.subheader("📊 多指標智慧買賣點戰情室 (含股利與紀念品)")
+    st.subheader("📊 多指標智慧買賣點戰情室")
     
     portfolio_df = working_portfolio.copy()
     current_prices, total_market_values, total_costs, profits, profit_pcts = [], [], [], [], []
@@ -263,7 +295,6 @@ if not current_portfolio.empty:
                 upper_bb, _, lower_bb = calculate_bollinger_bands(close)
                 u_val, l_val = float(upper_bb.iloc[-1]), float(lower_bb.iloc[-1])
             
-            # 取得最新除權息資料
             div_data = stock.dividends
             if not div_data.empty:
                 last_div = float(div_data.iloc[-1])
@@ -273,7 +304,6 @@ if not current_portfolio.empty:
             
         est_total_div = last_div * shares
 
-        # Yahoo奇摩股市 穩定版連結
         if market == "台股":
             s_url = f"https://tw.stock.yahoo.com/quote/{ticker}/profile"
         else:
@@ -314,11 +344,11 @@ if not current_portfolio.empty:
         if current_price >= suggested_tp: alert_msg = "🎯 達停利目標"
         elif current_price <= suggested_sl: alert_msg = "⚠️ 停損警戒"
 
-        current_prices.append(round(current_price, 2))
-        total_market_values.append(round(market_value, 2))
-        total_costs.append(round(total_cost, 2))
-        profits.append(round(profit, 2))
-        profit_pcts.append(round(profit_pct, 2))
+        current_prices.append(current_price)
+        total_market_values.append(market_value)
+        total_costs.append(total_cost)
+        profits.append(profit)
+        profit_pcts.append(profit_pct)
         final_tps.append(suggested_tp)
         final_sls.append(suggested_sl)
         recommendations.append(rec_msg)
@@ -345,23 +375,22 @@ if not current_portfolio.empty:
     portfolio_df["狀態"] = alerts
     portfolio_df["綜合建議"] = recommendations
 
-    # 建立戰情室顯示用的千分位格式 DataFrame
+    # 🚀 格式優化：大額金額只保留整數千分位，股價才保留小數點
     display_df = portfolio_df.copy()
     display_df["買入股數"] = display_df["買入股數"].apply(lambda x: f"{int(x):,}")
     display_df["買入均價"] = display_df["買入均價"].apply(lambda x: f"{x:,.2f}")
     display_df["現價"] = display_df["現價"].apply(lambda x: f"{x:,.2f}")
-    display_df["市值"] = display_df["市值"].apply(lambda x: f"{x:,.2f}")
-    display_df["總成本"] = display_df["總成本"].apply(lambda x: f"{x:,.2f}")
-    display_df["未實現損益"] = display_df["未實現損益"].apply(lambda x: f"{x:,.2f}")
+    display_df["市值"] = display_df["市值"].apply(lambda x: f"{int(x):,}")            # 整數
+    display_df["總成本"] = display_df["總成本"].apply(lambda x: f"{int(x):,}")          # 整數
+    display_df["未實現損益"] = display_df["未實現損益"].apply(lambda x: f"{int(x):,}")    # 整數
     display_df["報酬率 (%)"] = display_df["報酬率 (%)"].apply(lambda x: f"{x:,.2f}%")
     display_df["建議停利價"] = display_df["建議停利價"].apply(lambda x: f"{x:,.2f}")
     display_df["建議停損價"] = display_df["建議停損價"].apply(lambda x: f"{x:,.2f}")
     display_df["每股最近股利"] = display_df["每股最近股利"].apply(lambda x: f"{x:,.2f}")
-    display_df["預估領取總股息"] = display_df["預估領取總股息"].apply(lambda x: f"{x:,.2f}")
+    display_df["預估領取總股息"] = display_df["預估領取總股息"].apply(lambda x: f"{int(x):,}") # 整數
 
-    # 定義表格特殊欄位渲染 (加入超連結樣式)
     column_config_dict = {
-        "股東會與即時情報": st.column_config.LinkColumn("股東會與即時情報", display_text="🔗 點擊看股東會資訊")
+        "股東會與即時情報": st.column_config.LinkColumn("股東會與即時情報", display_text="🔗 點擊看即時資訊")
     }
 
     # 分頁呈現
@@ -380,12 +409,13 @@ if not current_portfolio.empty:
             tw_div_sum = portfolio_df.loc[tw_mask, "預估領取總股息"].sum()
             
             c1, c2, c3, c4 = st.columns(4)
-            with c1: st.markdown(f'<div class="metric-card"><div class="metric-title">台股總投資成本</div><div class="metric-value">${tw_cost:,.2f}</div></div>', unsafe_allow_html=True)
-            with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">台股目前總市值</div><div class="metric-value">${tw_value:,.2f}</div></div>', unsafe_allow_html=True)
+            # 大總額全數採 {:,.0f} 顯示為整數
+            with c1: st.markdown(f'<div class="metric-card"><div class="metric-title">台股總投資成本</div><div class="metric-value">${tw_cost:,.0f}</div></div>', unsafe_allow_html=True)
+            with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">台股目前總市值</div><div class="metric-value">${tw_value:,.0f}</div></div>', unsafe_allow_html=True)
             with c3: 
                 color_style = "color: #f87171;" if tw_profit >= 0 else "color: #34d399;"
-                st.markdown(f'<div class="metric-card"><div class="metric-title">台股總未實現損益</div><div class="metric-value" style="{color_style}">${tw_profit:,.2f} ({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
-            with c4: st.markdown(f'<div class="metric-card"><div class="metric-title">總預估可領股息</div><div class="metric-value" style="color: #60a5fa;">${tw_div_sum:,.2f}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="metric-card"><div class="metric-title">台股總未實現損益</div><div class="metric-value" style="{color_style}">${tw_profit:,.0f} ({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
+            with c4: st.markdown(f'<div class="metric-card"><div class="metric-title">總預估可領股息</div><div class="metric-value" style="color: #60a5fa;">${tw_div_sum:,.0f}</div></div>', unsafe_allow_html=True)
         else:
             st.info("目前尚無台股持股紀錄。")
 
@@ -402,11 +432,11 @@ if not current_portfolio.empty:
             us_div_sum = portfolio_df.loc[us_mask, "預估領取總股息"].sum()
             
             u1, u2, u3, u4 = st.columns(4)
-            with u1: st.markdown(f'<div class="metric-card"><div class="metric-title">美股總投資成本</div><div class="metric-value">${us_cost:,.2f}</div></div>', unsafe_allow_html=True)
-            with u2: st.markdown(f'<div class="metric-card"><div class="metric-title">美股目前總市值</div><div class="metric-value">${us_value:,.2f}</div></div>', unsafe_allow_html=True)
+            with u1: st.markdown(f'<div class="metric-card"><div class="metric-title">美股總投資成本</div><div class="metric-value">${us_cost:,.0f}</div></div>', unsafe_allow_html=True)
+            with u2: st.markdown(f'<div class="metric-card"><div class="metric-title">美股目前總市值</div><div class="metric-value">${us_value:,.0f}</div></div>', unsafe_allow_html=True)
             with u3: 
                 color_style = "color: #f87171;" if us_profit >= 0 else "color: #34d399;"
-                st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.2f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
-            with u4: st.markdown(f'<div class="metric-card"><div class="metric-title">總預估可領股息</div><div class="metric-value" style="color: #60a5fa;">${us_div_sum:,.2f}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.0f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
+            with u4: st.markdown(f'<div class="metric-card"><div class="metric-title">總預估可領股息</div><div class="metric-value" style="color: #60a5fa;">${us_div_sum:,.0f}</div></div>', unsafe_allow_html=True)
         else:
             st.info("目前尚無美股/其他持股紀錄。")
