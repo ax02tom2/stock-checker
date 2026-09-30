@@ -9,7 +9,7 @@ import uuid
 # 設定網頁寬度與標題
 st.set_page_config(
     page_title="智慧持股健檢儀表板",
-    page_icon="⚡",
+    page_icon="📈",
     layout="wide"
 )
 
@@ -38,23 +38,133 @@ init_db()
 # --- 核心機制：網址 UID 與還原碼 ---
 query_params = st.query_params
 if "uid" not in query_params or not query_params["uid"]:
-    new_uid = str(uuid.uuid4())[:8].upper()
+    new_uid = str(uuid.uuid4())[:8].upper() 
     st.query_params["uid"] = new_uid
     user_uid = new_uid
 else:
     user_uid = query_params["uid"].upper()
 
-# --- 側邊欄：資料還原區 ---
-st.sidebar.title("🔑 資料保存與還原")
-st.sidebar.info(f"您的專屬代碼：\n### **{user_uid}**\n\n💡 **防遺失秘訣**：\n請記下此代碼，或將目前網址「加入書籤」。下次關閉網頁後，輸入此代碼即可找回所有持股！")
+# --- 🚀 注入全新 Fintech 專業級 SaaS CSS 設計 ---
+st.markdown("""
+    <style>
+    /* 全局背景色 - 淺灰藍色系，提升質感 */
+    .stApp {
+        background-color: #F8FAFC;
+    }
+    
+    /* 隱藏預設的主選單與 footer */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* 標題字體與顏色 */
+    h1, h2, h3 {
+        color: #0F172A;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+    }
+    
+    /* 讓 Form 變成一張有質感的白底立體卡片 */
+    [data-testid="stForm"] {
+        background-color: #FFFFFF;
+        border-radius: 16px;
+        padding: 24px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+    }
+    
+    /* 按鈕大改造 (漸層 + 圓角 + 陰影) */
+    .stButton>button, .stFormSubmitButton>button {
+        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+        color: #FFFFFF;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 24px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover, .stFormSubmitButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 15px rgba(37, 99, 235, 0.4);
+        color: #FFFFFF;
+    }
+    
+    /* 側邊欄設計 - 暗黑對比風格 */
+    [data-testid="stSidebar"] {
+        background-color: #0F172A;
+        border-right: 1px solid #1E293B;
+    }
+    [data-testid="stSidebar"] * {
+        color: #F8FAFC !important;
+    }
+    
+    /* 戰情室數據卡片 (側邊飾條立體設計) */
+    .dashboard-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-left: 6px solid #3B82F6; /* 預設藍色左側飾條 */
+        padding: 24px 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.04);
+        text-align: center;
+        margin-bottom: 20px;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .dashboard-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+    }
+    .card-title { color: #64748B; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .card-value { color: #0F172A; font-size: 28px; font-weight: 800; font-family: 'Arial', sans-serif;}
+    .card-subtext { font-size: 15px; font-weight: 700; margin-top: 6px; }
+    
+    /* 特殊卡片飾條顏色 */
+    .border-red { border-left-color: #DC2626 !important; }
+    .border-green { border-left-color: #059669 !important; }
+    .border-blue { border-left-color: #3B82F6 !important; }
+    .border-purple { border-left-color: #8B5CF6 !important; }
+    
+    /* 分頁籤 (膠囊按鈕風格) */
+    .stTabs [data-baseweb="tab-list"] { 
+        gap: 12px; 
+        padding-bottom: 15px;
+    }
+    .stTabs [data-baseweb="tab"] { 
+        background-color: #F1F5F9; 
+        border-radius: 8px; 
+        color: #475569; 
+        padding: 12px 24px; 
+        font-weight: 600; 
+        border: 1px solid #CBD5E1; 
+        transition: all 0.2s;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #E2E8F0;
+    }
+    .stTabs [aria-selected="true"] { 
+        background: #0F172A !important; 
+        color: #FFFFFF !important; 
+        border-color: #0F172A !important;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    }
+    </style>
+""", unsafe_allow_html=True)
 
+# --- 側邊欄：資料還原區 ---
+st.sidebar.title("🔐 系統與資料安全")
+st.sidebar.markdown(f"您的專屬授權碼：\n# **`{user_uid}`**")
+st.sidebar.info("💡 **貼心提醒**：\n此授權碼即為您的資料庫鑰匙。請將本網址「加入書籤」，或記下此代碼。")
 st.sidebar.markdown("---")
-st.sidebar.subheader("🔄 輸入代碼還原資料")
-restore_uid = st.sidebar.text_input("輸入您的 8 碼專屬代碼：")
-if st.sidebar.button("載入我的持股"):
+st.sidebar.subheader("🔄 跨裝置還原資料")
+restore_uid = st.sidebar.text_input("輸入 8 碼授權碼：", placeholder="例如: A1B2C3D4")
+if st.sidebar.button("載入雲端持股"):
     if restore_uid:
         st.query_params["uid"] = restore_uid.strip().upper()
         st.rerun()
+
+st.title("📈 智慧持股健檢與戰情分析儀表板")
+st.markdown("歡迎使用專業級個人資產管理系統。資料採用 UID 加密隔離，重新整理絕不遺失。")
 
 # --- 資料庫存取函數 ---
 def load_portfolio(uid):
@@ -78,52 +188,6 @@ def save_portfolio(uid, df):
         ''', (uid, row["股票代號"], row["中文名稱"], row["市場"], row["買入股數"], row["買入均價"], row["停利目標價"], row["停損目標價"]))
     conn.commit()
     conn.close()
-
-# 🚀 注入全新明亮專業風 CSS
-st.markdown("""
-    <style>
-    /* 全局背景：舒適的淺灰藍底色 */
-    .stApp {
-        background-color: #F3F6F9;
-    }
-    
-    /* 戰情室卡片：乾淨的白色質感卡片 + 柔和陰影 */
-    .metric-card {
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-        text-align: center;
-        margin-bottom: 15px;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-    .metric-card:hover { 
-        transform: translateY(-2px); 
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); 
-    }
-    .metric-title { color: #64748B; font-size: 14px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
-    .metric-value { color: #0F172A; font-size: 26px; font-weight: 700; margin-top: 5px; }
-    
-    /* 分頁籤樣式優化 */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] { 
-        background-color: #E2E8F0; 
-        border-radius: 8px 8px 0px 0px; 
-        color: #475569; 
-        padding: 10px 20px; 
-        font-weight: 600; 
-        border: none; 
-    }
-    .stTabs [aria-selected="true"] { 
-        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important; 
-        color: white !important; 
-        box-shadow: 0 -4px 12px rgba(37, 99, 235, 0.2);
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-st.title("⚡ 智慧持股健檢儀表板")
 
 # --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
@@ -155,11 +219,9 @@ def calculate_bollinger_bands(series, window=20, num_std=2):
     except Exception:
         return series, series, series
 
-# 驗證輸入代號
 def resolve_and_verify_ticker(user_input):
     clean_input = str(user_input).strip()
     digits = re.findall(r'\d+', clean_input)
-    
     if digits:
         code = digits[0]
         ticker = code + ".TW"
@@ -179,14 +241,12 @@ def resolve_and_verify_ticker(user_input):
             name = stock.info.get('shortName') or ticker
         except:
             return None, None, None
-            
     return ticker, name, market
 
-# 載入當前使用者的持股資料庫
 current_portfolio = load_portfolio(user_uid)
 
 # --- 新增持股區塊 ---
-st.subheader("📝 新增持股部位")
+st.subheader("📝 新增投資標的")
 with st.form("add_form", clear_on_submit=True):
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: t_input = st.text_input("名稱或代號 (例: 旺宏 或 2337)", value="")
@@ -195,10 +255,9 @@ with st.form("add_form", clear_on_submit=True):
     with c4: tp_input = st.number_input("停利目標價 (0表自動)", min_value=0.0, value=0.0)
     with c5: sl_input = st.number_input("停損目標價 (0表自動)", min_value=0.0, value=0.0)
     
-    add_btn = st.form_submit_button("➕ 加入清單")
+    add_btn = st.form_submit_button("➕ 加入監控清單")
     if add_btn and t_input:
         ticker, stock_name, market = resolve_and_verify_ticker(t_input)
-        
         if ticker is None:
             st.error(f"❌ 查無此股票代號（「{t_input}」），請確認輸入是否正確！")
         else:
@@ -221,8 +280,9 @@ with st.form("add_form", clear_on_submit=True):
 
 # --- 持股管理與刪除 ---
 if not current_portfolio.empty:
-    st.markdown("---")
-    st.subheader("🛠️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("⚙️ 庫存部位管理")
+    st.markdown("*(可直接於表格內點擊修改數字，或勾選最左側核取方塊後按 `Delete` 刪除，完成後請點擊下方儲存)*")
     
     display_portfolio = current_portfolio.copy()
     for col in ["買入股數", "買入均價", "停利目標價", "停損目標價"]:
@@ -245,14 +305,14 @@ if not current_portfolio.empty:
         working_portfolio[col] = working_portfolio[col].astype(str).str.replace(',', '', regex=False)
         working_portfolio[col] = pd.to_numeric(working_portfolio[col], errors='coerce').fillna(0)
     
-    if st.button("💾 儲存表格變更"):
+    if st.button("💾 儲存部位變更"):
         save_portfolio(user_uid, working_portfolio)
         st.success("變更已成功同步至資料庫！")
         st.rerun()
 
     # --- 盤勢健檢與儀表板計算 ---
-    st.markdown("---")
-    st.subheader("📊 多指標智慧買賣點戰情室 (含股利與紀念品)")
+    st.markdown("<br><hr><br>", unsafe_allow_html=True)
+    st.subheader("📊 多指標戰情室與股利預測")
     
     portfolio_df = working_portfolio.copy()
     current_prices, total_market_values, total_costs, profits, profit_pcts = [], [], [], [], []
@@ -325,11 +385,11 @@ if not current_portfolio.empty:
         if current_price <= l_val * 1.01: score += 2
         elif current_price >= u_val * 0.99: score -= 2
 
-        if score >= 3: rec_msg = f"🟢 【強力買點】支撐約 {l_val:.1f}~{ma60:.1f}"
-        elif score >= 1: rec_msg = f"🟡 【逢低關注】回測月線({ma20:.1f})"
-        elif score <= -3: rec_msg = f"🔴 【強力賣點】接近上軌({u_val:.1f})"
-        elif score <= -1: rec_msg = f"🟠 【偏弱注意】短線動能轉弱"
-        else: rec_msg = f"⚪ 【震盪觀望】多空交錯區間操作"
+        if score >= 3: rec_msg = f"🟢 強力買點 (支撐約 {l_val:.1f})"
+        elif score >= 1: rec_msg = f"🟡 逢低關注 (回測月線)"
+        elif score <= -3: rec_msg = f"🔴 強力賣點 (近上軌 {u_val:.1f})"
+        elif score <= -1: rec_msg = f"🟠 偏弱注意"
+        else: rec_msg = f"⚪ 區間震盪"
 
         alert_msg = "正常監控"
         if current_price >= suggested_tp: alert_msg = "🎯 達停利目標"
@@ -362,11 +422,11 @@ if not current_portfolio.empty:
     portfolio_df["每股最近股利"] = recent_divs
     portfolio_df["預估領取總股息"] = total_divs
     portfolio_df["最近除息日"] = div_dates
-    portfolio_df["股東會與即時情報"] = souvenir_urls
+    portfolio_df["股東會與情報"] = souvenir_urls
     portfolio_df["狀態"] = alerts
     portfolio_df["綜合建議"] = recommendations
 
-    # 🚀 格式優化：大額金額保留整數千分位，股價才保留小數點
+    # 數值格式化 (保留小數點給單價，總額去小數點)
     display_df = portfolio_df.copy()
     display_df["買入股數"] = display_df["買入股數"].apply(lambda x: f"{int(x):,}")
     display_df["買入均價"] = display_df["買入均價"].apply(lambda x: f"{x:,.2f}")
@@ -381,17 +441,16 @@ if not current_portfolio.empty:
     display_df["預估領取總股息"] = display_df["預估領取總股息"].apply(lambda x: f"{int(x):,}") 
 
     column_config_dict = {
-        "股東會與即時情報": st.column_config.LinkColumn("股東會與即時情報", display_text="🔗 點擊看即時資訊")
+        "股東會與情報": st.column_config.LinkColumn("股東會與情報", display_text="🔗 前往查詢")
     }
 
-    # 分頁呈現
-    tab_tw, tab_us = st.tabs(["🇹🇼 台股監控儀表板", "🇺🇸 美股/其他監控儀表板"])
+    # 專業膠囊分頁呈現
+    tab_tw, tab_us = st.tabs(["🇹🇼 台灣股市 (TWSE/TPEx)", "🇺🇸 美股及海外 (US/Global)"])
 
     with tab_tw:
         tw_mask = portfolio_df["市場"] == "台股"
         if tw_mask.any():
             tw_display_df = display_df[tw_mask].drop(columns=["市場"])
-            st.dataframe(tw_display_df, use_container_width=True, column_config=column_config_dict)
             
             tw_cost = portfolio_df.loc[tw_mask, "總成本"].sum()
             tw_value = portfolio_df.loc[tw_mask, "市值"].sum()
@@ -399,23 +458,25 @@ if not current_portfolio.empty:
             tw_profit_pct = (tw_profit / tw_cost) * 100 if tw_cost > 0 else 0
             tw_div_sum = portfolio_df.loc[tw_mask, "預估領取總股息"].sum()
             
+            # HTML 手刻高質感指標卡片
             c1, c2, c3, c4 = st.columns(4)
-            # 在明亮背景下，將台股的紅綠色稍微調深以增加對比度與質感
-            # 賺錢(正)：#DC2626 (深紅) | 賠錢(負)：#059669 (深綠)
-            color_style = "color: #DC2626;" if tw_profit >= 0 else "color: #059669;"
+            # 台股邏輯：紅賺綠賠
+            p_color = "#DC2626" if tw_profit >= 0 else "#059669"
+            p_class = "border-red" if tw_profit >= 0 else "border-green"
             
-            with c1: st.markdown(f'<div class="metric-card"><div class="metric-title">台股總投資成本</div><div class="metric-value">${tw_cost:,.0f}</div></div>', unsafe_allow_html=True)
-            with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">台股目前總市值</div><div class="metric-value">${tw_value:,.0f}</div></div>', unsafe_allow_html=True)
-            with c3: st.markdown(f'<div class="metric-card"><div class="metric-title">台股總未實現損益</div><div class="metric-value" style="{color_style}">${tw_profit:,.0f} ({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
-            with c4: st.markdown(f'<div class="metric-card"><div class="metric-title">總預估可領股息</div><div class="metric-value" style="color: #2563EB;">${tw_div_sum:,.0f}</div></div>', unsafe_allow_html=True)
+            with c1: st.markdown(f'<div class="dashboard-card border-blue"><div class="card-title">總投資成本</div><div class="card-value">${tw_cost:,.0f}</div></div>', unsafe_allow_html=True)
+            with c2: st.markdown(f'<div class="dashboard-card border-blue"><div class="card-title">目前總市值</div><div class="card-value">${tw_value:,.0f}</div></div>', unsafe_allow_html=True)
+            with c3: st.markdown(f'<div class="dashboard-card {p_class}"><div class="card-title">未實現損益</div><div class="card-value" style="color: {p_color};">${tw_profit:,.0f}</div><div class="card-subtext" style="color: {p_color};">({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
+            with c4: st.markdown(f'<div class="dashboard-card border-purple"><div class="card-title">預估可領總股息</div><div class="card-value" style="color: #7C3AED;">${tw_div_sum:,.0f}</div></div>', unsafe_allow_html=True)
+            
+            st.dataframe(tw_display_df, use_container_width=True, column_config=column_config_dict)
         else:
-            st.info("目前尚無台股持股紀錄。")
+            st.info("💡 目前尚無台股監控紀錄，請從上方表單新增。")
 
     with tab_us:
         us_mask = portfolio_df["市場"] == "美股/其他"
         if us_mask.any():
             us_display_df = display_df[us_mask].drop(columns=["市場"])
-            st.dataframe(us_display_df, use_container_width=True, column_config=column_config_dict)
             
             us_cost = portfolio_df.loc[us_mask, "總成本"].sum()
             us_value = portfolio_df.loc[us_mask, "市值"].sum()
@@ -423,12 +484,15 @@ if not current_portfolio.empty:
             us_profit_pct = (us_profit / us_cost) * 100 if us_cost > 0 else 0
             us_div_sum = portfolio_df.loc[us_mask, "預估領取總股息"].sum()
             
-            u1, u2, u3, u4 = st.columns(4)
-            color_style = "color: #DC2626;" if us_profit >= 0 else "color: #059669;"
+            c1, c2, c3, c4 = st.columns(4)
+            p_color = "#DC2626" if us_profit >= 0 else "#059669"
+            p_class = "border-red" if us_profit >= 0 else "border-green"
             
-            with u1: st.markdown(f'<div class="metric-card"><div class="metric-title">美股總投資成本</div><div class="metric-value">${us_cost:,.0f}</div></div>', unsafe_allow_html=True)
-            with u2: st.markdown(f'<div class="metric-card"><div class="metric-title">美股目前總市值</div><div class="metric-value">${us_value:,.0f}</div></div>', unsafe_allow_html=True)
-            with u3: st.markdown(f'<div class="metric-card"><div class="metric-title">美股總未實現損益</div><div class="metric-value" style="{color_style}">${us_profit:,.0f} ({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
-            with u4: st.markdown(f'<div class="metric-card"><div class="metric-title">總預估可領股息</div><div class="metric-value" style="color: #2563EB;">${us_div_sum:,.0f}</div></div>', unsafe_allow_html=True)
+            with c1: st.markdown(f'<div class="dashboard-card border-blue"><div class="card-title">總投資成本</div><div class="card-value">${us_cost:,.0f}</div></div>', unsafe_allow_html=True)
+            with c2: st.markdown(f'<div class="dashboard-card border-blue"><div class="card-title">目前總市值</div><div class="card-value">${us_value:,.0f}</div></div>', unsafe_allow_html=True)
+            with c3: st.markdown(f'<div class="dashboard-card {p_class}"><div class="card-title">未實現損益</div><div class="card-value" style="color: {p_color};">${us_profit:,.0f}</div><div class="card-subtext" style="color: {p_color};">({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
+            with c4: st.markdown(f'<div class="dashboard-card border-purple"><div class="card-title">預估可領總股息</div><div class="card-value" style="color: #7C3AED;">${us_div_sum:,.0f}</div></div>', unsafe_allow_html=True)
+            
+            st.dataframe(us_display_df, use_container_width=True, column_config=column_config_dict)
         else:
-            st.info("目前尚無美股/其他持股紀錄。")
+            st.info("💡 目前尚無美股監控紀錄，請從上方表單新增。")
