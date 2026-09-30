@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 資料庫初始化（確保 F5 重新整理資料不丟失） ---
+# --- 資料庫初始化 ---
 def init_db():
     conn = sqlite3.connect('portfolio_v3.db', check_same_thread=False)
     c = conn.cursor()
@@ -35,15 +35,28 @@ def init_db():
 
 init_db()
 
-# 確保每個瀏覽器分頁都有專屬且持久的 UID
+# --- 核心機制：網址 UID 與還原碼 ---
 query_params = st.query_params
 if "uid" not in query_params or not query_params["uid"]:
-    new_uid = str(uuid.uuid4())[:8]
+    new_uid = str(uuid.uuid4())[:8].upper() # 產生 8 碼大寫短 UID
     st.query_params["uid"] = new_uid
     user_uid = new_uid
 else:
-    user_uid = query_params["uid"]
+    user_uid = query_params["uid"].upper()
 
+# --- 側邊欄：資料還原區 ---
+st.sidebar.title("🔑 資料保存與還原")
+st.sidebar.info(f"您的專屬代碼：\n### **{user_uid}**\n\n💡 **防遺失秘訣**：\n請記下此代碼，或將目前網址「加入書籤」。下次關閉網頁後，輸入此代碼即可找回所有持股！")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔄 輸入代碼還原資料")
+restore_uid = st.sidebar.text_input("輸入您的 8 碼專屬代碼：")
+if st.sidebar.button("載入我的持股"):
+    if restore_uid:
+        st.query_params["uid"] = restore_uid.strip().upper()
+        st.rerun()
+
+# --- 資料庫存取函數 ---
 def load_portfolio(uid):
     conn = sqlite3.connect('portfolio_v3.db', check_same_thread=False)
     df = pd.read_sql('''
@@ -186,7 +199,7 @@ with st.form("add_form", clear_on_submit=True):
 # --- 持股管理與刪除 ---
 if not current_portfolio.empty:
     st.markdown("---")
-    st.subheader("🛠️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
+    st.subheader("🛠️️ 現有持股管理（可直接修改或刪除，修改後點下方按鈕儲存）")
     
     display_portfolio = current_portfolio.copy()
     for col in ["買入股數", "買入均價", "停利目標價", "停損目標價"]:
@@ -260,9 +273,8 @@ if not current_portfolio.empty:
             
         est_total_div = last_div * shares
 
-        # 🚀 修正 404 問題：改為串接穩定且手機排版友善的 Yahoo奇摩股市
+        # Yahoo奇摩股市 穩定版連結
         if market == "台股":
-            # Yahoo Finance 台灣版的專屬頁面
             s_url = f"https://tw.stock.yahoo.com/quote/{ticker}/profile"
         else:
             s_url = f"https://finance.yahoo.com/quote/{ticker}/key-statistics"
