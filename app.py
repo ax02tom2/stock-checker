@@ -31,7 +31,6 @@ def init_db():
             PRIMARY KEY (uid, ticker)
         )
     ''')
-    # 確保資料庫支援手動覆蓋股利欄位 (作為備用)
     try:
         c.execute('ALTER TABLE user_portfolios ADD COLUMN stock_div REAL DEFAULT 0.0')
     except: pass
@@ -154,8 +153,8 @@ def save_portfolio(uid, df):
     conn.commit()
     conn.close()
 
-# 🚀 獨家黑科技：自動爬取 Yahoo 台灣股市的「股票股利」與「現金股利」
-@st.cache_data(ttl=43200) # 快取 12 小時，避免頻繁抓取被鎖
+# 自動抓取 Yahoo 股利資料
+@st.cache_data(ttl=43200)
 def fetch_dividend_auto(ticker, market):
     cash_div, stock_div, div_date = 0.0, 0.0, "-"
     if market == "台股":
@@ -164,8 +163,6 @@ def fetch_dividend_auto(ticker, market):
             url = f"https://tw.stock.yahoo.com/quote/{code}/dividend"
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             res = requests.get(url, headers=headers, timeout=5)
-            
-            # 使用正則表達式從網頁底層 JSON 挖出最新的股利資料
             cash_match = re.findall(r'"cashDividend":([0-9.]+)', res.text)
             stock_match = re.findall(r'"stockDividend":([0-9.]+)', res.text)
             date_match = re.findall(r'"exDividendDate":"([0-9]{4}-[0-9]{2}-[0-9]{2})"', res.text)
@@ -174,7 +171,6 @@ def fetch_dividend_auto(ticker, market):
             if stock_match: stock_div = float(stock_match[0])
             if date_match: div_date = date_match[0]
             
-            # 萬一網頁改版抓不到，退回 yfinance 備用機制
             if not cash_match and not stock_match:
                 stock = yf.Ticker(ticker)
                 div_data = stock.dividends
@@ -182,7 +178,7 @@ def fetch_dividend_auto(ticker, market):
                     cash_div = float(div_data.iloc[-1])
                     div_date = div_data.index[-1].strftime("%Y-%m-%d")
         except: pass
-    else: # 美股直接使用 yfinance
+    else:
         try:
             stock = yf.Ticker(ticker)
             div_data = stock.dividends
@@ -192,7 +188,6 @@ def fetch_dividend_auto(ticker, market):
         except: pass
     return cash_div, stock_div, div_date
 
-# --- 技術指標計算函數 ---
 def calculate_rsi(series, period=14):
     try:
         delta = series.diff()
@@ -269,32 +264,34 @@ with tab_add_us:
             except:
                 st.error("❌ 查無美股代號或連線失敗！")
 
-# --- 持股管理 ---
+# --- 持股管理 (完美千分位解決方案) ---
 if not current_portfolio.empty:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("⚙️ 庫存部位管理")
-    st.markdown("*(現在系統會**全自動抓取股票股利**，若抓取有誤，您才需要在最右側欄位手動輸入覆蓋)*")
+    st.markdown("*(現在系統會**全自動抓取股票股利**，若抓取有誤，您才需要在最右側欄位手動覆蓋)*")
     
-    display_portfolio = current_portfolio.copy()
+    # 【修正 1】：顯示時強制轉成包含逗號的文字，讓編輯器完美顯示 1,000
+    edit_df = current_portfolio.copy()
     for col in ["買入股數", "買入均價", "停利目標價", "停損目標價", "股票股利(手動覆蓋)"]:
-        display_portfolio[col] = pd.to_numeric(display_portfolio.get(col, 0), errors='coerce').fillna(0)
+        edit_df[col] = pd.to_numeric(edit_df.get(col, 0), errors='coerce').fillna(0)
     
-    edited_display = st.data_editor(
-        display_portfolio, 
-        num_rows="dynamic", 
-        use_container_width=True, 
-        key="portfolio_editor",
-        column_config={
-            "買入股數": st.column_config.NumberColumn(format="%d"),
-            "買入均價": st.column_config.NumberColumn(format="%.2f"),
-            "停利目標價": st.column_config.NumberColumn(format="%.2f"),
-            "停損目標價": st.column_config.NumberColumn(format="%.2f"),
-            "股票股利(手動覆蓋)": st.column_config.NumberColumn("股票股利(手動覆蓋)", format="%.2f", help="若大於0，將以此數字取代自動抓取的股票股利"),
-        }
-    )
+    edit_df["買入股數"] = edit_df["買入股數"].apply(lambda x: f"{int(x):,}")
+    edit_df["買入均價"] = edit_df["買入均價"].apply(lambda x: f"{float(x):,.2f}")
+    edit_df["停利目標價"] = edit_df["停利目標價"].apply(lambda x: f"{float(x):,.2f}")
+    edit_df["停損目標價"] = edit_df["停損目標價"].apply(lambda x: f"{float(x):,.2f}")
+    edit_df["股票股利(手動覆蓋)"] = edit_df["股票股利(手動覆蓋)"].apply(lambda x: f"{float(x):,.2f}")
+    
+    # 讓編輯器直接吃文字欄位，不使用任何會導致逗號消失的格式化
+    edited_display = st.data_editor(edit_df, num_rows="dynamic", use_container_width=True, key="portfolio_editor")
+    
+    # 【修正 2】：儲存前把逗號拔掉，轉回純數字存進資料庫
+    working_portfolio = edited_display.copy()
+    for col in ["買入股數", "買入均價", "停利目標價", "停損目標價", "股票股利(手動覆蓋)"]:
+        working_portfolio[col] = working_portfolio[col].astype(str).str.replace(',', '', regex=False)
+        working_portfolio[col] = pd.to_numeric(working_portfolio[col], errors='coerce').fillna(0)
     
     if st.button("💾 儲存部位變更"):
-        save_portfolio(user_uid, edited_display)
+        save_portfolio(user_uid, working_portfolio)
         st.success("變更已成功同步至資料庫！")
         st.rerun()
 
@@ -302,7 +299,7 @@ if not current_portfolio.empty:
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
     st.subheader("📊 多指標戰情室與股利預測")
     
-    portfolio_df = edited_display.copy()
+    portfolio_df = working_portfolio.copy()
     current_prices, total_market_values, total_costs, profits, profit_pcts = [], [], [], [], []
     final_tps, final_sls, recommendations, alerts = [], [], [], []
     cash_divs, stock_divs, total_cash_divs, est_stock_shares, div_dates, souvenir_urls = [], [], [], [], [], []
@@ -319,10 +316,7 @@ if not current_portfolio.empty:
         current_price = cost
         ma20, ma60, rsi, m_val, s_val, u_val, l_val = cost, cost, 50, 0, 0, cost, cost
         
-        # 🚀 自動抓取股利資料
         auto_cash_div, auto_stock_div, last_div_date = fetch_dividend_auto(ticker, market)
-        
-        # 若使用者有手動覆蓋，則採用使用者數值
         final_stock_div = user_stock_div_override if user_stock_div_override > 0 else auto_stock_div
         
         try:
@@ -339,9 +333,8 @@ if not current_portfolio.empty:
                 u_val, l_val = float(upper_bb.iloc[-1]), float(lower_bb.iloc[-1])
         except: pass
             
-        # 股利精算
         est_total_cash = auto_cash_div * shares
-        est_stock = shares * (final_stock_div / 10.0)  # 1元股票股利 = 每千股配100股
+        est_stock = shares * (final_stock_div / 10.0) 
         
         s_url = f"https://tw.stock.yahoo.com/quote/{ticker}/profile" if market == "台股" else f"https://finance.yahoo.com/quote/{ticker}/key-statistics"
 
@@ -382,57 +375,54 @@ if not current_portfolio.empty:
         div_dates.append(last_div_date); souvenir_urls.append(s_url)
 
     portfolio_df["標的名稱"] = portfolio_df["中文名稱"]
-    portfolio_df = portfolio_df.drop(columns=["股票代號", "中文名稱", "市場"])
+    portfolio_df = portfolio_df.drop(columns=["股票代號", "中文名稱"])
     
+    # 這裡【全部保持純數字】！這是避免發生 Styler 紅字大崩潰的關鍵！
     portfolio_df["現價"] = current_prices; portfolio_df["市值"] = total_market_values
     portfolio_df["總成本"] = total_costs; portfolio_df["未實現損益"] = profits
     portfolio_df["報酬率 (%)"] = profit_pcts; portfolio_df["建議停利價"] = final_tps
     portfolio_df["建議停損價"] = final_sls; portfolio_df["現金股利"] = cash_divs
     portfolio_df["股票股利"] = stock_divs; portfolio_df["預估現金股息"] = total_cash_divs
-    portfolio_df["預估配發股數"] = est_stock_shares; portfolio_df["股東會與情報"] = souvenir_urls
+    portfolio_df["預估配發股數"] = est_stock_shares; portfolio_df["🔗 即時情報與股東會"] = souvenir_urls
     portfolio_df["狀態"] = alerts; portfolio_df["綜合建議"] = recommendations
 
-    # 🎨 定義 Pandas Styler 專用的顏色處理函數 (保留數值型態供格式化)
+    # 🎨 【修正 3】：定義 Pandas Styler，所有千分位與顏色都在這一層執行，並拿掉 column_config
     def style_dataframe(df):
         styled = df.style
         
-        # 1. 賺錢紅字，賠錢綠字
         def color_profit(val):
             if pd.isna(val): return ''
             if val > 0: return 'color: #DC2626; font-weight: bold;'
             elif val < 0: return 'color: #059669; font-weight: bold;'
             return ''
             
-        # 2. 停利橘色，停損紫色
         def color_tp(val): return 'color: #D97706; font-weight: bold;'
         def color_sl(val): return 'color: #7C3AED; font-weight: bold;'
 
-        if hasattr(styled, "map"): # 支援新版 Pandas
+        if hasattr(styled, "map"):
             styled = styled.map(color_profit, subset=["未實現損益", "報酬率 (%)"])\
                            .map(color_tp, subset=["建議停利價"])\
                            .map(color_sl, subset=["建議停損價"])
-        else: # 相容舊版 Pandas
+        else:
             styled = styled.applymap(color_profit, subset=["未實現損益", "報酬率 (%)"])\
                            .applymap(color_tp, subset=["建議停利價"])\
                            .applymap(color_sl, subset=["建議停損價"])
                            
-        # 將數值直接在 Styler 層級做千分位格式化 (避免轉字串導致排序錯亂)
+        # 真正安全的 Styler 千分位格式化
         return styled.format({
             "買入股數": "{:,.0f}", "買入均價": "{:,.2f}", "現價": "{:,.2f}",
             "市值": "{:,.0f}", "總成本": "{:,.0f}", "未實現損益": "{:,.0f}",
             "報酬率 (%)": "{:,.2f}%", "建議停利價": "{:,.2f}", "建議停損價": "{:,.2f}",
-            "現金股利": "{:,.2f}", "股票股利": "{:,.2f}", "股票股利(手動覆蓋)": "{:,.2f}", 
+            "現金股利": "{:,.2f}", "股票股利": "{:,.2f}", 
             "預估現金股息": "{:,.0f}", "預估配發股數": "{:,.0f}"
         })
-
-    column_config_dict = {"股東會與情報": st.column_config.LinkColumn("股東會與情報", display_text="🔗 前往查詢")}
 
     tab_tw, tab_us = st.tabs(["🇹🇼 台灣股市 (TWSE/TPEx)", "🇺🇸 美股及海外 (US/Global)"])
 
     with tab_tw:
-        tw_mask = working_portfolio["市場"] == "台股"
+        tw_mask = portfolio_df["市場"] == "台股"
         if tw_mask.any():
-            tw_display_df = portfolio_df[tw_mask]
+            tw_display_df = portfolio_df[tw_mask].drop(columns=["市場", "股票股利(手動覆蓋)"])
             tw_cost = tw_display_df["總成本"].sum()
             tw_value = tw_display_df["市值"].sum()
             tw_profit = tw_value - tw_cost
@@ -448,15 +438,15 @@ if not current_portfolio.empty:
             with c3: st.markdown(f'<div class="dashboard-card {p_class}"><div class="card-title">未實現損益</div><div class="card-value" style="color: {p_color};">${tw_profit:,.0f}</div><div class="card-subtext" style="color: {p_color};">({tw_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
             with c4: st.markdown(f'<div class="dashboard-card border-purple"><div class="card-title">預估總現金股息</div><div class="card-value" style="color: #7C3AED;">${tw_div_sum:,.0f}</div></div>', unsafe_allow_html=True)
             
-            # 使用我們定義的 style_dataframe 來顯示彩色與格式化過的表格
-            st.dataframe(style_dataframe(tw_display_df), use_container_width=True, column_config=column_config_dict)
+            # 使用 Styler 顯示，並移除了會崩潰的 column_config (Streamlit會自動將最後一欄的網址變為可點擊連結)
+            st.dataframe(style_dataframe(tw_display_df), use_container_width=True)
         else:
             st.info("💡 目前尚無台股監控紀錄，請從上方表單新增。")
 
     with tab_us:
-        us_mask = working_portfolio["市場"] == "美股/其他"
+        us_mask = portfolio_df["市場"] == "美股/其他"
         if us_mask.any():
-            us_display_df = portfolio_df[us_mask]
+            us_display_df = portfolio_df[us_mask].drop(columns=["市場", "股票股利(手動覆蓋)"])
             us_cost = us_display_df["總成本"].sum()
             us_value = us_display_df["市值"].sum()
             us_profit = us_value - us_cost
@@ -472,7 +462,7 @@ if not current_portfolio.empty:
             with c3: st.markdown(f'<div class="dashboard-card {p_class}"><div class="card-title">未實現損益</div><div class="card-value" style="color: {p_color};">${us_profit:,.0f}</div><div class="card-subtext" style="color: {p_color};">({us_profit_pct:.2f}%)</div></div>', unsafe_allow_html=True)
             with c4: st.markdown(f'<div class="dashboard-card border-purple"><div class="card-title">預估總現金股息</div><div class="card-value" style="color: #7C3AED;">${us_div_sum:,.0f}</div></div>', unsafe_allow_html=True)
             
-            st.dataframe(style_dataframe(us_display_df), use_container_width=True, column_config=column_config_dict)
+            st.dataframe(style_dataframe(us_display_df), use_container_width=True)
         else:
             st.info("💡 目前尚無美股監控紀錄，請從上方表單新增。")
 
