@@ -3,7 +3,6 @@ import pandas as pd
 import yfinance as yf
 import re
 import twstock
-import sqlite3
 import uuid
 import requests
 
@@ -14,39 +13,26 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 資料庫初始化 ---
-def init_db():
-    conn = sqlite3.connect('portfolio_v3.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS user_portfolios (
-            uid TEXT,
-            ticker TEXT,
-            chinese_name TEXT,
-            market TEXT,
-            shares REAL,
-            cost REAL,
-            tp REAL,
-            sl REAL,
-            PRIMARY KEY (uid, ticker)
-        )
-    ''')
-    try:
-        c.execute('ALTER TABLE user_portfolios ADD COLUMN stock_div REAL DEFAULT 0.0')
-    except: pass
-    conn.commit()
-    conn.close()
+# --- Supabase 設定檢查 ---
+if "SUPABASE_URL" not in st.secrets or "SUPABASE_KEY" not in st.secrets:
+    st.error("❌ 尚未設定 Supabase。請到 Streamlit 的 Secrets 加入 SUPABASE_URL 與 SUPABASE_KEY。")
+    st.stop()
 
-init_db()
+SB_BASE_URL = st.secrets["SUPABASE_URL"].rstrip("/")
+SB_KEY = st.secrets["SUPABASE_KEY"]
+SB_TABLE_URL = f"{SB_BASE_URL}/rest/v1/user_portfolios"
+
+DISPLAY_COLS = ["股票代號", "中文名稱", "市場", "買入股數", "買入均價",
+                "停利目標價", "停損目標價", "股票股利(手動覆蓋)"]
 
 # --- 核心機制：網址 UID 與還原碼 ---
 query_params = st.query_params
 if "uid" not in query_params or not query_params["uid"]:
-    new_uid = str(uuid.uuid4())[:8].upper() 
+    new_uid = str(uuid.uuid4())[:8].upper()
     st.query_params["uid"] = new_uid
     user_uid = new_uid
 else:
-    user_uid = query_params["uid"].upper()
+    user_uid = query_params["uid"].strip().upper()
 
 # --- 🚀 注入全新 Fintech 專業級 SaaS CSS 設計 ---
 st.markdown("""
@@ -107,6 +93,90 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- 資料庫存取 (Supabase REST API) ---
+def _sb_headers(extra=None):
+    h = {
+        "apikey": SB_KEY,
+        "Authorization": f"Bearer {SB_KEY}",
+        "Content-Type": "application/json",
+    }
+    if extra:
+        h.update(extra)
+    return h
+
+def load_portfolio(uid):
+    """讀取持股。連線失敗會直接丟出例外（不會假裝成空資料，避免誤存覆蓋）。"""
+    res = requests.get(
+        SB_TABLE_URL, headers=_sb_headers(),
+        params={"uid": f"eq.{uid}", "select": "*"}, timeout=15
+    )
+    res.raise_for_status()
+    rows = res.json()
+    if not rows:
+        return pd.DataFrame(columns=DISPLAY_COLS)
+    df = pd.DataFrame(rows).rename(columns={
+        "ticker": "股票代號", "chinese_name": "中文名稱", "market": "市場",
+        "shares": "買入股數", "cost": "買入均價", "tp": "停利目標價",
+        "sl": "停損目標價", "stock_div": "股票股利(手動覆蓋)"
+    })
+    for col in DISPLAY_COLS:
+        if col not in df.columns:
+            df[col] = 0.0
+    df["股票股利(手動覆蓋)"] = pd.to_numeric(df["股票股利(手動覆蓋)"], errors="coerce").fillna(0.0)
+    return df[DISPLAY_COLS].reset_index(drop=True)
+
+def save_portfolio(uid, df):
+    """先 upsert（失敗不會刪舊資料），再刪除使用者在編輯器中移除的標的。"""
+    df = df.copy()
+    df = df.dropna(subset=["股票代號"])
+    df = df[df["股票代號"].astype(str).str.strip() != ""]
+    df = df.drop_duplicates(subset=["股票代號"], keep="last")
+
+    def num(v, default=0.0):
+        try:
+            f = float(v)
+            return default if pd.isna(f) else f
+        except (TypeError, ValueError):
+            return default
+
+    records = []
+    for _, row in df.iterrows():
+        records.append({
+            "uid": uid,
+            "ticker": str(row["股票代號"]).strip(),
+            "chinese_name": str(row.get("中文名稱", "") or ""),
+            "market": str(row.get("市場", "") or "台股"),
+            "shares": num(row.get("買入股數")),
+            "cost": num(row.get("買入均價")),
+            "tp": num(row.get("停利目標價")),
+            "sl": num(row.get("停損目標價")),
+            "stock_div": num(row.get("股票股利(手動覆蓋)")),
+        })
+
+    if records:
+        r = requests.post(
+            SB_TABLE_URL,
+            headers=_sb_headers({"Prefer": "resolution=merge-duplicates"}),
+            params={"on_conflict": "uid,ticker"},
+            json=records, timeout=15
+        )
+        r.raise_for_status()
+
+    # 刪除被使用者移除的標的
+    existing = requests.get(
+        SB_TABLE_URL, headers=_sb_headers(),
+        params={"uid": f"eq.{uid}", "select": "ticker"}, timeout=15
+    )
+    existing.raise_for_status()
+    keep = {rec["ticker"] for rec in records}
+    for e in existing.json():
+        if e["ticker"] not in keep:
+            d = requests.delete(
+                SB_TABLE_URL, headers=_sb_headers(),
+                params={"uid": f"eq.{uid}", "ticker": f"eq.{e['ticker']}"}, timeout=15
+            )
+            d.raise_for_status()
+
 # --- 側邊欄：資料還原區 ---
 st.sidebar.title("🔐 系統與資料安全")
 st.sidebar.markdown(f"您的專屬授權碼：\n# **`{user_uid}`**")
@@ -132,26 +202,6 @@ def get_tw_stocks_list():
     return options
 
 tw_stock_options = get_tw_stocks_list()
-
-def load_portfolio(uid):
-    conn = sqlite3.connect('portfolio_v3.db', check_same_thread=False)
-    df = pd.read_sql('''SELECT ticker as "股票代號", chinese_name as "中文名稱", market as "市場", 
-                        shares as "買入股數", cost as "買入均價", tp as "停利目標價", sl as "停損目標價", stock_div as "股票股利(手動覆蓋)"
-                        FROM user_portfolios WHERE uid = ?''', conn, params=(uid,))
-    conn.close()
-    return df
-
-def save_portfolio(uid, df):
-    conn = sqlite3.connect('portfolio_v3.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('DELETE FROM user_portfolios WHERE uid = ?', (uid,))
-    for _, row in df.iterrows():
-        stock_div_val = float(row.get("股票股利(手動覆蓋)", 0.0))
-        c.execute('''INSERT OR REPLACE INTO user_portfolios (uid, ticker, chinese_name, market, shares, cost, tp, sl, stock_div)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', 
-                  (uid, row["股票代號"], row["中文名稱"], row["市場"], row["買入股數"], row["買入均價"], row["停利目標價"], row["停損目標價"], stock_div_val))
-    conn.commit()
-    conn.close()
 
 # 🚀 動態爬蟲抓取股利
 @st.cache_data(ttl=43200)
@@ -215,7 +265,42 @@ def calculate_bollinger_bands(series, window=20, num_std=2):
         return ma + (std * num_std), ma, ma - (std * num_std)
     except: return series, series, series
 
-current_portfolio = load_portfolio(user_uid)
+# --- 讀取持股（失敗就停止，避免把「讀取失敗」誤當成「沒有資料」而覆蓋）---
+try:
+    current_portfolio = load_portfolio(user_uid)
+except Exception as e:
+    st.error(f"❌ 無法連線到資料庫，已暫停操作以保護您的資料。請稍後重新整理。\n\n錯誤訊息：{e}")
+    st.stop()
+
+# --- 側邊欄：備份下載 / 匯入 ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 資料備份")
+if not current_portfolio.empty:
+    st.sidebar.download_button(
+        "⬇️ 下載持股備份 (CSV)",
+        current_portfolio.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"portfolio_{user_uid}.csv",
+        mime="text/csv",
+    )
+uploaded_backup = st.sidebar.file_uploader("⬆️ 從備份 CSV 匯入", type=["csv"])
+if uploaded_backup is not None and st.sidebar.button("確認匯入備份"):
+    try:
+        backup_df = pd.read_csv(uploaded_backup)
+        missing = [c for c in ["股票代號", "中文名稱", "市場", "買入股數", "買入均價", "停利目標價", "停損目標價"] if c not in backup_df.columns]
+        if missing:
+            st.sidebar.error(f"CSV 缺少欄位：{', '.join(missing)}")
+        else:
+            if "股票股利(手動覆蓋)" not in backup_df.columns:
+                backup_df["股票股利(手動覆蓋)"] = 0.0
+            # 匯入採「合併」：保留現有持股，同代號以備份為準
+            merged = pd.concat([
+                current_portfolio[~current_portfolio["股票代號"].isin(backup_df["股票代號"])],
+                backup_df[DISPLAY_COLS]
+            ]).reset_index(drop=True)
+            save_portfolio(user_uid, merged)
+            st.rerun()
+    except Exception as e:
+        st.sidebar.error(f"匯入失敗：{e}")
 
 # --- 新增投資標的 ---
 st.subheader("📝 新增投資標的")
@@ -244,9 +329,12 @@ with tab_add_tw:
             new_row = pd.DataFrame({"股票代號": [full_ticker], "中文名稱": [name], "市場": ["台股"], 
                                     "買入股數": [tw_s], "買入均價": [tw_c], "停利目標價": [tw_tp], "停損目標價": [tw_sl], "股票股利(手動覆蓋)": [0.0]})
             updated_df = pd.concat([current_portfolio[current_portfolio["股票代號"] != full_ticker], new_row]).reset_index(drop=True)
-            save_portfolio(user_uid, updated_df)
-            st.success(f"成功新增：{code} {name}")
-            st.rerun()
+            try:
+                save_portfolio(user_uid, updated_df)
+                st.success(f"成功新增：{code} {name}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ 儲存失敗：{e}")
 
 with tab_add_us:
     with st.form("add_us_form", clear_on_submit=True):
@@ -265,15 +353,18 @@ with tab_add_us:
                 if stock.history(period="5d").empty:
                     st.error(f"❌ 查無美股代號：{ticker_us}")
                 else:
-                    name_us = stock.info.get('shortName') or ticker_us
+                    try:
+                        name_us = stock.info.get('shortName') or ticker_us
+                    except:
+                        name_us = ticker_us
                     new_row = pd.DataFrame({"股票代號": [ticker_us], "中文名稱": [name_us], "市場": ["美股/其他"], 
                                             "買入股數": [us_s], "買入均價": [us_c], "停利目標價": [us_tp], "停損目標價": [us_sl], "股票股利(手動覆蓋)": [0.0]})
                     updated_df = pd.concat([current_portfolio[current_portfolio["股票代號"] != ticker_us], new_row]).reset_index(drop=True)
                     save_portfolio(user_uid, updated_df)
                     st.success(f"成功新增：{ticker_us}")
                     st.rerun()
-            except:
-                st.error("❌ 查無美股代號或連線失敗！")
+            except Exception as e:
+                st.error(f"❌ 查無美股代號或連線失敗！{e}")
 
 # --- 持股管理 (編輯區格式化保持完美) ---
 if not current_portfolio.empty:
@@ -303,15 +394,22 @@ if not current_portfolio.empty:
     )
     
     if st.button("💾 儲存部位變更"):
-        save_portfolio(user_uid, edited_display)
-        st.success("變更已成功同步至資料庫！")
-        st.rerun()
+        try:
+            save_portfolio(user_uid, edited_display)
+            st.success("變更已成功同步至資料庫！")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ 儲存失敗，資料未被更動：{e}")
 
     # --- 盤勢健檢與儀表板 ---
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
     st.subheader("📊 多指標戰情室與股利預測")
     
+    # 過濾掉編輯器中尚未填寫代號的空白列，避免後續計算出錯
     portfolio_df = edited_display.copy()
+    portfolio_df = portfolio_df.dropna(subset=["股票代號"])
+    portfolio_df = portfolio_df[portfolio_df["股票代號"].astype(str).str.strip() != ""].reset_index(drop=True)
+
     current_prices, total_market_values, total_costs, profits, profit_pcts = [], [], [], [], []
     final_tps, final_sls, recommendations, alerts = [], [], [], []
     cash_divs, stock_divs, total_cash_divs, est_stock_shares, div_dates, souvenir_urls = [], [], [], [], [], []
@@ -394,7 +492,7 @@ if not current_portfolio.empty:
     portfolio_df["標的名稱"] = portfolio_df["中文名稱"]
     portfolio_df = portfolio_df.drop(columns=["股票代號", "中文名稱"])
     
-    # 【關鍵修復】：全部保持純數字！不轉字串！格式化統交給 Styler！
+    # 全部保持純數字！不轉字串！格式化統交給 Styler！
     portfolio_df["現價"] = current_prices
     portfolio_df["市值"] = total_market_values
     portfolio_df["總成本"] = total_costs
@@ -431,7 +529,6 @@ if not current_portfolio.empty:
                            .applymap(color_tp, subset=["建議停利價"])\
                            .applymap(color_sl, subset=["建議停損價"])
                            
-        # 【完美解決小數點與千分位】：所有數值欄位在此定義精準格式！
         return styled.format({
             "買入股數": "{:,.0f}",
             "買入均價": "{:,.2f}",
@@ -459,7 +556,6 @@ if not current_portfolio.empty:
         if tw_mask.any():
             tw_display_df = portfolio_df[tw_mask].drop(columns=["市場", "股票股利(手動覆蓋)"])
             
-            # 使用列表推導直接從原始串列中計算總額
             tw_cost = sum([total_costs[i] for i, m in enumerate(portfolio_df["市場"]) if m == "台股"])
             tw_value = sum([total_market_values[i] for i, m in enumerate(portfolio_df["市場"]) if m == "台股"])
             tw_profit = tw_value - tw_cost
